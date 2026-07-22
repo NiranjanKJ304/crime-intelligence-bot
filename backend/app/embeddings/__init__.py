@@ -1,0 +1,3 @@
+"""
+Embedding Platform module.
+"""

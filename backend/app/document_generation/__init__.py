@@ -1,0 +1,3 @@
+"""
+AI Document Generation module.
+"""
