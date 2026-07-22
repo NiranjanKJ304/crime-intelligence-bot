@@ -25,7 +25,7 @@ class DistrictSummaryBuilder(BaseDocumentBuilder):
         SELECT 
             d.*,
             (SELECT count(*) FROM "{self.config.clean_schema}"."clean_Unit" u WHERE u."DistrictID" = d."DistrictID") AS "UnitCount",
-            (SELECT count(*) FROM "{self.config.clean_schema}"."clean_CaseMaster" c WHERE c."DistrictID" = d."DistrictID") AS "CaseCount"
+            (SELECT count(*) FROM "{self.config.clean_schema}"."clean_CaseMaster" c JOIN "{self.config.clean_schema}"."clean_Unit" cu ON c."PoliceStationID" = cu."UnitID" WHERE cu."DistrictID" = d."DistrictID") AS "CaseCount"
         FROM "{self.config.clean_schema}"."clean_District" d
         ORDER BY d."DistrictID"
         LIMIT :limit OFFSET :offset

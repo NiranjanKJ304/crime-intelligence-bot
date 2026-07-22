@@ -53,8 +53,8 @@ class CaseSummaryBuilder(BaseDocumentBuilder):
             cs."cstype", cs."csdate"
              
         FROM "{self.config.clean_schema}"."clean_CaseMaster" c
-        LEFT JOIN "{self.config.clean_schema}"."clean_District" d ON c."DistrictID" = d."DistrictID"
         LEFT JOIN "{self.config.clean_schema}"."clean_Unit" u ON c."PoliceStationID" = u."UnitID"
+        LEFT JOIN "{self.config.clean_schema}"."clean_District" d ON u."DistrictID" = d."DistrictID"
         LEFT JOIN "{self.config.clean_schema}"."clean_Employee" emp ON c."PolicePersonID" = emp."EmployeeID"
         LEFT JOIN "{self.config.clean_schema}"."clean_Court" crt ON c."CourtID" = crt."CourtID"
         LEFT JOIN "{self.config.clean_schema}"."clean_ChargesheetDetails" cs ON c."CaseMasterID" = cs."CaseMasterID"

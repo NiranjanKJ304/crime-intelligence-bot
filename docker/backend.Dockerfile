@@ -35,7 +35,10 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH="/app"
+    PYTHONPATH="/app" \
+    HF_HOME="/app/.cache/huggingface" \
+    TRANSFORMERS_CACHE="/app/.cache/huggingface" \
+    HF_HUB_CACHE="/app/.cache/huggingface"
 
 WORKDIR /app
 
@@ -46,20 +49,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create a non-root user with a home directory
+RUN groupadd -r appuser && useradd -r -m -g appuser appuser
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
 # Copy application code
 COPY backend/app /app/app
-# Create directories for logs/store to ensure they exist and set ownership
+# Create directories for logs/store to ensure they exist
 RUN mkdir -p /app/app/etl/logs /app/app/etl/reports /app/app/document_generation/store && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app/app
+
+# Explicitly create and configure Hugging Face cache directory
+RUN mkdir -p /app/.cache/huggingface && \
+    chown -R appuser:appuser /app/.cache
 
 # Switch to non-root user
 USER appuser
+
+# Verify the user has write permissions to the cache directory
+RUN touch /app/.cache/huggingface/test_write.txt && rm /app/.cache/huggingface/test_write.txt
 
 EXPOSE 8000
 

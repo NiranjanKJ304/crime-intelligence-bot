@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+import time
+import os
 from typing import Any
 
 from app.embeddings.config import EmbeddingConfig
@@ -37,11 +39,21 @@ class ModelManager:
         if self._model is not None:
             return
 
+        cache_dir = os.environ.get("HF_HOME", "/app/.cache/huggingface")
+        if not os.path.exists(cache_dir):
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                logger.info(f"ModelManager created cache directory at {cache_dir}")
+            except Exception as e:
+                raise RuntimeError(f"ModelManager failed to create cache directory {cache_dir}: {e}")
+                
         logger.info(f"Loading embedding model: {self.config.embedding_model} on {self.config.embedding_device}")
+        logger.info(f"Using Hugging Face cache directory: {cache_dir}")
         
         # Import lazily to avoid slowing down startup if embeddings aren't used
         from sentence_transformers import SentenceTransformer
         
+        start_time = time.perf_counter()
         try:
             self._model = SentenceTransformer(
                 model_name_or_path=self.config.embedding_model,
@@ -50,9 +62,10 @@ class ModelManager:
             # Determine dimensions by encoding a test string
             test_emb = self._model.encode("test")
             self._dimensions = len(test_emb)
-            logger.info(f"Model loaded successfully. Dimensions: {self._dimensions}")
+            load_time = time.perf_counter() - start_time
+            logger.info(f"Model loaded successfully in {load_time:.2f}s. Dimensions: {self._dimensions}")
         except Exception as e:
-            logger.error(f"Failed to load model {self.config.embedding_model}: {e}")
+            logger.error(f"Failed to load model {self.config.embedding_model}: {e}", exc_info=True)
             raise RuntimeError(f"Model loading failed: {e}")
 
     def encode(self, texts: list[str]) -> np.ndarray:

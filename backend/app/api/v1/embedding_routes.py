@@ -5,6 +5,7 @@ REST API Routes for Embedding Platform.
 from __future__ import annotations
 
 import logging
+import os
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.config import Settings, get_settings
@@ -26,6 +27,29 @@ def get_pipeline(settings: Settings = Depends(get_settings)) -> EmbeddingPipelin
     """Dependency provider for EmbeddingPipeline."""
     config = build_embedding_config(settings)
     return EmbeddingPipeline(config)
+
+
+@router.get("/health")
+def get_health(pipeline: EmbeddingPipeline = Depends(get_pipeline)) -> dict:
+    """Return embedding health status."""
+    try:
+        qdrant_stats = pipeline.collection_mgr.get_statistics()
+        is_qdrant_connected = qdrant_stats.get("status") == "green" or qdrant_stats.get("status") == "ok" or qdrant_stats.get("points_count") is not None
+        
+        return {
+            "status": "healthy" if pipeline.model_mgr.dimensions > 0 else "degraded",
+            "model_loaded": pipeline.model_mgr.dimensions > 0,
+            "model_name": pipeline.model_mgr.model_name,
+            "dimension": pipeline.model_mgr.dimensions,
+            "cache_directory": os.environ.get("HF_HOME", "/app/.cache/huggingface"),
+            "qdrant_connected": is_qdrant_connected
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}", exc_info=True)
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
 
 @router.post("/build", response_model=EmbeddingBuildResult)

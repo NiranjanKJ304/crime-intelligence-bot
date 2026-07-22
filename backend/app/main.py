@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+import os
+import multiprocessing
+import time
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
@@ -16,6 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.logging_config import setup_logging
 from app.core.neo4j_db import init_neo4j_driver, close_neo4j_driver
+from app.embeddings.config import build_embedding_config
+from app.embeddings.model_manager import ModelManager
 
 
 @asynccontextmanager
@@ -36,6 +41,49 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # We don't want the app to crash if Neo4j is down during startup, 
         # but we should log it.
         logging.getLogger("crime_bot").error(f"Failed to initialize Neo4j: {e}")
+        
+    # Validate and Init Embedding Model
+    logger = logging.getLogger("crime_bot")
+    try:
+        cache_dir = os.environ.get("HF_HOME", "/app/.cache/huggingface")
+        if not os.path.exists(cache_dir):
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                logger.info(f"Created cache directory at {cache_dir}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to create cache directory {cache_dir}: {e}")
+                
+        if not os.path.exists(cache_dir):
+            raise RuntimeError(f"Cache directory {cache_dir} does not exist even after creation attempt.")
+            
+        if not os.access(cache_dir, os.W_OK):
+            raise RuntimeError(f"Cache directory {cache_dir} is not writable.")
+            
+        emb_config = build_embedding_config(settings)
+        mgr = ModelManager.get_instance(emb_config)
+        
+        start_time = time.perf_counter()
+        mgr.load_model()
+        load_time = time.perf_counter() - start_time
+        
+        if mgr.dimensions != 384:
+            raise RuntimeError(f"Invalid embedding dimension: {mgr.dimensions}. Expected 384.")
+            
+        logger.info(
+            "Embedding Model Initialization Complete:\n"
+            f"  Model: {mgr.model_name}\n"
+            f"  Dimension: {mgr.dimensions}\n"
+            f"  Cache Directory: {cache_dir}\n"
+            f"  HF_HOME: {os.environ.get('HF_HOME')}\n"
+            f"  TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE')}\n"
+            f"  Device: {emb_config.embedding_device}\n"
+            f"  CPU Threads: {multiprocessing.cpu_count()}\n"
+            f"  Load Time: {load_time:.2f}s\n"
+            f"  Qdrant Host: {emb_config.qdrant_host}:{emb_config.qdrant_port}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize embedding model: {e}", exc_info=True)
+        raise RuntimeError(f"Startup validation failed: {e}")
 
     yield
 

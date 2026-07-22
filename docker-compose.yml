@@ -8,6 +8,10 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    environment:
+      HF_HOME: ${HF_HOME:-/app/.cache/huggingface}
+      TRANSFORMERS_CACHE: ${TRANSFORMERS_CACHE:-/app/.cache/huggingface}
+      HF_HUB_CACHE: ${HF_HUB_CACHE:-/app/.cache/huggingface}
     env_file:
       - .env
     networks:
@@ -78,7 +82,7 @@ services:
     networks:
       - crime_network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6333/ || exit 1"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
       interval: 5s
       timeout: 5s
       retries: 5

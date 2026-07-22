@@ -33,8 +33,8 @@ class AccusedProfileBuilder(BaseDocumentBuilder):
              
         FROM "{self.config.clean_schema}"."clean_Accused" a
         LEFT JOIN "{self.config.clean_schema}"."clean_CaseMaster" c ON a."CaseMasterID" = c."CaseMasterID"
-        LEFT JOIN "{self.config.clean_schema}"."clean_District" d ON c."DistrictID" = d."DistrictID"
         LEFT JOIN "{self.config.clean_schema}"."clean_Unit" u ON c."PoliceStationID" = u."UnitID"
+        LEFT JOIN "{self.config.clean_schema}"."clean_District" d ON u."DistrictID" = d."DistrictID"
         ORDER BY a."AccusedMasterID"
         LIMIT :limit OFFSET :offset
         """

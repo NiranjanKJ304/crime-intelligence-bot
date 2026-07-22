@@ -43,3 +43,6 @@ app/etl/reports/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Document Store
+app/document_generation/store/
