@@ -1,103 +1,195 @@
-# Crime Intelligence Copilot - Docker Deployment
+# Crime Intelligence Copilot — Docker Deployment Guide
 
-This repository contains the complete, production-ready Docker infrastructure for the Karnataka Police Crime Intelligence Copilot.
+This guide covers running the complete **Karnataka Police Crime Intelligence Platform** using Docker Compose.
 
-With a single command, you can spin up the entire backend ecosystem, including:
-- **FastAPI Backend** (ETL, Document Generation, Semantic Search)
-- **PostgreSQL** (Raw & Clean Relational Data)
-- **Neo4j** (Knowledge Graph)
-- **Qdrant** (Vector Database)
+The stack includes:
+
+| Container | Image | Host Port | Purpose |
+|-----------|-------|-----------|---------|
+| `crime_bot_backend` | Custom FastAPI image | `8000` | API, ETL, RAG, LLM |
+| `crime_bot_postgres` | `postgres:16-alpine` | `5433` | Relational data (raw + clean) |
+| `crime_bot_neo4j` | `neo4j:5-community` | `7475` (HTTP) / `7688` (Bolt) | Knowledge graph |
+| `crime_bot_qdrant` | `qdrant/qdrant:latest` | `6333–6334` | Vector database |
+
+> **Note:** Host ports are offset from defaults (5433 instead of 5432, 7475/7688 instead of 7474/7687) to avoid conflicts with local database installations.
+
+---
 
 ## Prerequisites
 
-- [Docker Engine](https://docs.docker.com/engine/install/) (v24.0+)
-- [Docker Compose](https://docs.docker.com/compose/install/) (v2.20+)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) v24.0+ (Windows / macOS) or Docker Engine v24+ (Linux)
+- [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
+- A [Groq API key](https://console.groq.com/) for the LLM layer
 
-## First Startup
+---
 
-1. **Configure the Environment**
-   Copy the example environment file to `.env`:
-   ```bash
-   cp .env.docker.example .env
-   ```
-   *(Optional)* Edit `.env` to change default passwords or model parameters.
+## First-Time Setup
 
-2. **Start the Cluster**
-   Run the following command from the root of the repository:
-   ```bash
-   docker compose up -d
-   ```
+### 1. Configure Environment
 
-   **Note on Startup Sequence**: 
-   The `backend` container will remain in a `Wait` state until PostgreSQL, Neo4j, and Qdrant have fully initialized and reported as `healthy`. This may take 10-30 seconds on the first boot.
+Copy the example env file to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` and set your `GROQ_API_KEY`:
+
+```env
+GROQ_API_KEY=your_groq_api_key_here
+```
+
+> All other defaults (DB passwords, model names, etc.) are pre-configured and work out of the box for local development.
+
+### 2. Build & Start the Cluster
+
+From the repository root:
+
+```bash
+docker compose up -d
+```
+
+On the **first boot**, Docker will:
+1. Pull all base images (~1–2 GB total)
+2. Build the FastAPI backend image
+3. Download the embedding model (`BAAI/bge-small-en-v1.5`) into the container cache
+
+This can take **2–5 minutes** on first run. Subsequent starts take ~15–30 seconds.
+
+### 3. Verify All Services Are Healthy
+
+```bash
+docker compose ps
+```
+
+All containers should show `healthy` or `running`. Then verify the backend:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{"status": "ok", "version": "0.1.0"}
+```
+
+---
 
 ## Accessing the Services
 
-Once all containers are running, you can access the services at the following URLs:
-
-| Service | URL | Description |
+| Service | URL | Credentials |
 |---------|-----|-------------|
-| **Backend API** | [http://localhost:8000](http://localhost:8000) | Root API endpoint |
-| **Swagger UI** | [http://localhost:8000/docs](http://localhost:8000/docs) | Interactive API documentation |
-| **Neo4j Browser** | [http://localhost:7474](http://localhost:7474) | Graph visualization UI |
-| **Qdrant Dashboard** | [http://localhost:6333/dashboard](http://localhost:6333/dashboard) | Vector DB UI |
+| **Backend API** | http://localhost:8000 | — |
+| **Swagger UI** | http://localhost:8000/docs | — |
+| **Neo4j Browser** | http://localhost:7475 | `neo4j` / `supersecret_neo4j_password` |
+| **Qdrant Dashboard** | http://localhost:6333/dashboard | — |
+| **Streamlit UI** | http://localhost:8501 | *(run separately — see below)* |
+
+---
+
+## Running the Streamlit Frontend
+
+The frontend is a separate Streamlit app and is **not** part of the Docker Compose stack. Run it locally:
+
+```bash
+cd frontend
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Then open **http://localhost:8501** in your browser.
+
+The sidebar will show **"Backend: Online"** once the Docker containers are healthy.
+
+---
 
 ## Development Workflow
 
-This setup includes a `docker-compose.override.yml` file tailored for local development:
-- The `./backend/app` directory is bind-mounted directly into the container.
-- The FastAPI server runs with `uvicorn --reload`.
-- Any changes you make to the Python code on your local machine will automatically restart the server inside the container.
+The `docker-compose.override.yml` file is automatically applied in development:
 
-## Managing the Cluster
+- `./backend/app` is **bind-mounted** into the container — code changes are reflected immediately
+- Uvicorn runs with `--reload` — the server restarts on any Python file change
+- The `./backend` directory is excluded from the file watcher to avoid reloading on generated JSON files
 
-**View Logs (All Services)**
+To rebuild after adding a new Python dependency:
+
 ```bash
-docker compose logs -f
+docker compose up -d --build backend
 ```
 
-**View Logs (Backend Only)**
-```bash
-docker compose logs -f backend
-```
+---
 
-**Stop the Cluster**
-```bash
-docker compose stop
-```
+## Common Commands
 
-**Tear Down the Cluster** (Leaves persistent volumes intact)
-```bash
-docker compose down
-```
+| Action | Command |
+|--------|---------|
+| Start all services | `docker compose up -d` |
+| Stop all services | `docker compose stop` |
+| View all logs | `docker compose logs -f` |
+| View backend logs | `docker compose logs -f backend` |
+| Restart backend | `docker compose restart backend` |
+| Rebuild backend image | `docker compose up -d --build backend` |
+| Destroy containers (keep data) | `docker compose down` |
+| Destroy containers + data | `docker compose down -v` |
 
-**Tear Down the Cluster AND Delete Data** (Destroys all databases!)
-```bash
-docker compose down -v
-```
+---
 
-## Database Persistence
+## Data Persistence
 
-All data is stored in Docker Named Volumes, meaning your data survives container restarts and teardowns (unless you use the `-v` flag).
+All data is stored in Docker **named volumes**, surviving container restarts and `docker compose down`:
 
-- `postgres_data`: Relational data
-- `neo4j_data`: Graph data
-- `qdrant_storage`: Vector embeddings
+| Volume | Contains |
+|--------|----------|
+| `postgres_data` | Raw + clean relational crime data |
+| `neo4j_data` | Knowledge graph nodes and relationships |
+| `qdrant_storage` | Vector embeddings |
+| `backend_hf_cache` | Downloaded HuggingFace model weights |
+
+> ⚠️ **Only `docker compose down -v` will delete this data.** Normal restarts preserve everything.
+
+---
 
 ## Troubleshooting
 
-**Q: The backend container keeps crashing or restarting.**
-A: Check the logs: `docker compose logs backend`. Ensure your `.env` file exists and the database URLs point to the service names (`postgres`, `neo4j`, `qdrant`), not `localhost`.
+**Backend crashes on startup with `Neo4j connection refused`**
 
-**Q: Neo4j APOC plugins aren't loading.**
-A: The `docker-compose.yml` handles this automatically via the `NEO4J_PLUGINS='["apoc"]'` environment variable. Give the container a moment to download the plugin on the very first boot.
+This is expected if Neo4j is still initializing. The backend logs the error but continues running. The Chat API does not require Neo4j — semantic search via Qdrant will work immediately.
 
-**Q: How do I rebuild the backend image after adding a new pip package?**
-A: Run: `docker compose up -d --build backend`
+**Backend crashes with `WatchfilesRustInternalError`**
+
+This occurs when `uvicorn --reload` tries to watch the large document generation store. It is handled by excluding the `document_generation/store` directory from the watcher in the override file. If it recurs, restart the backend:
+
+```bash
+docker compose restart backend
+```
+
+**`GROQ_API_KEY` is missing or invalid**
+
+Check your `.env` file exists in the repo root and contains a valid key. Then restart the backend:
+
+```bash
+docker compose restart backend
+```
+
+**Port conflict (e.g., `5433 already in use`)**
+
+A local PostgreSQL instance may be using the same port. Edit `docker-compose.override.yml` to change the host port mapping, e.g., `"5434:5432"`.
+
+**How do I rebuild after adding a pip package?**
+
+Add the package to `backend/requirements.txt`, then:
+
+```bash
+docker compose up -d --build backend
+```
+
+---
 
 ## Production Deployment
 
-When deploying to a remote production server:
-1. Delete or rename `docker-compose.override.yml` so it isn't applied.
-2. Change the default passwords in your `.env` file.
-3. Place a reverse proxy (like NGINX or Traefik) in front of port 8000 to handle SSL/TLS termination.
+1. **Remove the override file** — rename or delete `docker-compose.override.yml` so bind-mounts and `--reload` are not applied
+2. **Harden secrets** — change all default passwords in `.env` and use Docker secrets or a secrets manager
+3. **Add a reverse proxy** — place NGINX or Traefik in front of port 8000 to handle SSL/TLS termination
+4. **Restrict ports** — expose only ports 80/443 externally; keep 5433, 7475, 7688, and 6333 internal-only
+5. **Set `DEBUG=False`** in `.env` (already the default)

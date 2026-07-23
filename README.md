@@ -1,162 +1,165 @@
-# Crime-Bot Backend — ETL Pipeline
+# Karnataka Police Crime Intelligence Platform
 
-Production-ready FastAPI backend with an integrated ETL (Extract, Transform, Load) pipeline that automatically discovers, profiles, cleans, transforms, validates, and loads crime data from PostgreSQL.
+> An end-to-end AI-powered crime investigation assistant built with FastAPI, Qdrant, Groq, and Streamlit.
 
-## Architecture
+---
+
+## 🏛️ What is this?
+
+The **Crime Intelligence Copilot** is a full-stack RAG (Retrieval-Augmented Generation) platform for the Karnataka Police that allows investigators to ask natural language questions against a corpus of crime records and receive grounded, citation-backed answers from a large language model.
+
+The platform covers the entire ML engineering pipeline — from raw PostgreSQL data through ETL, Neo4j knowledge graph construction, vector embedding, semantic retrieval, LLM-based question answering, and a professional Streamlit UI.
+
+---
+
+## 🗺️ Architecture
 
 ```
-PostgreSQL (Raw) → ETL Pipeline → PostgreSQL (Clean) → Graph Builder → Neo4j (Knowledge Graph)
+User (Browser)
+    │
+    ▼
+Streamlit Frontend  ← REST / SSE →  FastAPI Backend
+                                         │
+                    ┌────────────────────┤
+                    │                    │
+                    ▼                    ▼
+              PostgreSQL           Groq LLM API
+              (Crime Data)     (llama-3.3-70b-versatile)
+                    │
+                    ├──► ETL Pipeline → clean schema
+                    ├──► Document Generation
+                    ├──► Knowledge Graph → Neo4j
+                    └──► Embeddings → Qdrant
+                                   ▲
+                              Semantic Search
+                             (Retrieval Engine)
 ```
 
-The pipeline is **zero-hardcoded**: it discovers all tables, columns, relationships, and data types automatically from PostgreSQL metadata. No table names or column names are hardcoded anywhere. Cleaned data is then used as the single source of truth to construct the Neo4j Knowledge Graph.
+---
 
-### Module Overview
+## ⚙️ Tech Stack
 
-| Module | Purpose |
-|--------|---------|
-| `schema_discovery.py` | Introspects PostgreSQL via SQLAlchemy Inspector |
-| `metadata.py` | Pydantic models for the schema graph |
-| `extract.py` | Loads every table into Pandas DataFrames |
-| `profile.py` | Detects data quality issues (missing, duplicates, outliers, etc.) |
-| `cleaning.py` | 11 reusable cleaners (Strategy pattern) |
-| `transform.py` | 7 derived field generators (CrimeYear, NightCrime, SearchText, etc.) |
-| `validation.py` | PK/FK integrity, type conformance, range checks |
-| `load.py` | Transactional TRUNCATE+INSERT into clean schema |
-| `pipeline.py` | Orchestrates the full flow with per-table error isolation |
-| `graph/builder.py`| Two-pass Neo4j Graph loading (Nodes then Relationships) |
-| `graph/schema_manager.py`| Manages Neo4j Constraints and Indexes |
-| `interfaces.py` | Abstract interfaces for Neo4j, Qdrant, RAG, LLM Agent |
+| Layer | Technology |
+|-------|-----------|
+| API Framework | FastAPI + Uvicorn |
+| LLM Provider | Groq (`llama-3.3-70b-versatile`) |
+| Embedding Model | `BAAI/bge-small-en-v1.5` (384-dim) |
+| Vector Store | Qdrant |
+| Graph Database | Neo4j 5 |
+| Relational DB | PostgreSQL 16 |
+| Frontend | Streamlit |
+| Streaming | Server-Sent Events (SSE via `sse-starlette`) |
+| Containerization | Docker + Docker Compose |
 
-### Future Module Integration
+---
 
-The `PipelineResult` object implements the `DataProvider` protocol:
+## 🚀 Quick Start
 
-```python
-from app.etl.interfaces import DataProvider
+### Prerequisites
 
-result: DataProvider = pipeline.run()
-result.get_clean_dataframes()      # Dict[str, DataFrame]
-result.get_table_metadata("table") # TableMetadata
-result.get_relationship_graph()    # Dict[str, List[str]]
-result.get_relationships()         # List[RelationshipMetadata]
-```
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (v24+)
+- A [Groq API key](https://console.groq.com/) (free tier available)
 
-## Setup
-
-### 1. Clone & Install
+### 1. Clone the repo
 
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate      # Windows
-# source .venv/bin/activate  # Linux/Mac
+git clone https://github.com/NiranjanKJ304/crime-intelligence-bot.git
+cd crime-intelligence-bot
+```
 
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+# Open .env and set your GROQ_API_KEY
+```
+
+### 3. Start the backend
+
+```bash
+docker compose up -d
+```
+
+Wait ~30 seconds for all services to become healthy. Check with:
+
+```bash
+docker compose ps
+```
+
+### 4. Start the Streamlit frontend
+
+```bash
+cd frontend
 pip install -r requirements.txt
+streamlit run app.py
 ```
 
-### 2. Configure
+Then open **http://localhost:8501** in your browser.
 
-```bash
-copy .env.example .env
-# Edit .env with your PostgreSQL connection details
-```
+---
 
-Key variables:
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://user:password@localhost:5432/crime_db` | PostgreSQL connection |
-| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j Connection URI |
-| `NEO4J_USERNAME` | `neo4j` | Neo4j Username |
-| `NEO4J_PASSWORD` | `password` | Neo4j Password |
-| `SOURCE_SCHEMA` | `public` | Schema to read from |
-| `CLEAN_SCHEMA` | `clean` | Schema for cleaned tables |
-| `BATCH_SIZE` | `10000` | Rows per batch for large tables |
-| `EVIDENCE_COLUMN_PATTERNS` | `narrative,evidence,...` | Columns to preserve (not text-clean) |
+## 📡 Backend API Reference
 
-### 3. Run
-
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 4. Test
-
-```bash
-pytest tests/ -v --tb=short
-```
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Overall system health |
+| `POST` | `/api/v1/chat` | Synchronous RAG chat |
+| `POST` | `/api/v1/chat/stream` | Streaming SSE RAG chat |
 | `POST` | `/api/v1/etl/run` | Run full ETL pipeline |
-| `GET` | `/api/v1/etl/status` | Last pipeline run status |
-| `GET` | `/api/v1/etl/schema` | Discover database schema |
-| `GET` | `/api/v1/etl/tables` | List discovered tables |
-| `GET` | `/api/v1/etl/relationships` | Table relationship graph |
-| `GET` | `/api/v1/etl/reports/profile/{table}` | Profiling report |
-| `GET` | `/api/v1/etl/reports/validation/{table}` | Validation report |
-| `GET` | `/api/v1/etl/reports/summary` | Pipeline summary |
-| `POST` | `/api/v1/graph/build` | Build Neo4j Knowledge Graph |
-| `POST` | `/api/v1/graph/update`| Incrementally update Neo4j Graph |
-| `GET`  | `/api/v1/graph/statistics`| Live Neo4j node/relationship stats |
+| `GET` | `/api/v1/etl/status` | Last pipeline status |
+| `GET` | `/api/v1/etl/schema` | Discover DB schema |
+| `POST` | `/api/v1/graph/build` | Build Neo4j graph |
+| `GET` | `/api/v1/graph/statistics` | Graph node/edge counts |
+| `POST` | `/api/v1/retrieval/search` | Semantic search |
+| `GET` | `/api/v1/retrieval/statistics` | Retrieval analytics |
+| `GET` | `/api/v1/retrieval/health` | Retrieval engine health |
 
-## Clean Schema
+Full interactive docs available at **http://localhost:8000/docs** (Swagger UI).
 
-The ETL **never modifies raw tables**. Cleaned data is written to the `clean` schema:
+---
+
+## 📁 Project Structure
 
 ```
-public.CaseMaster  →  clean.clean_casemaster
-public.Accused     →  clean.clean_accused
-public.Victim      →  clean.clean_victim
+crime-bot/
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/           # FastAPI route handlers
+│   │   ├── core/             # Config, settings
+│   │   ├── etl/              # ETL pipeline modules
+│   │   ├── document_generation/  # AI document builder
+│   │   ├── graph/            # Neo4j graph builder
+│   │   ├── embeddings/       # Embedding + Qdrant loader
+│   │   ├── retrieval/        # Retrieval engine + ranking
+│   │   ├── llm/              # LLM client + prompt builder
+│   │   └── rag/              # RAG orchestrator + citations
+│   ├── tests/                # Unit test suites
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/
+│   ├── api/client.py         # httpx REST client
+│   ├── pages/                # Chat, Dashboard, About
+│   ├── components/           # Sidebar, Cards, Metrics
+│   ├── utils/                # Helpers, constants
+│   ├── app.py                # Streamlit entry point
+│   └── requirements.txt
+├── docker-compose.yml
+├── docker-compose.override.yml  # Dev: bind-mount + reload
+├── .env.example              # Environment template
+└── PROJECT_STATUS.md         # Phase-by-phase status
 ```
 
-Loading uses transactional TRUNCATE + INSERT to preserve indexes and constraints.
+---
 
-## Data Cleaning
+## 🔒 Security Notes
 
-11 composable cleaners applied in order:
+- **Never commit `.env`** — it is listed in `.gitignore`
+- Use `.env.example` as a template; fill in real values locally
+- Change all default passwords before any production deployment
+- Place NGINX or Traefik in front of port 8000 for SSL termination in production
 
-1. **NullNormalizer** — "NULL", "N/A", "" → `None`
-2. **TrimSpaces** — Strip leading/trailing whitespace
-3. **CollapseSpaces** — Multiple spaces → single
-4. **GenderNormalizer** — M/Male/MALE → "Male"
-5. **PhoneNormalizer** — Indian phone numbers (+91, 0-prefix)
-6. **CrimeNumberNormalizer** — FIR/crime number standardization
-7. **DateNormalizer** — Multiple formats → ISO 8601
-8. **DatetimeConverter** — String → datetime64
-9. **DuplicateRemover** — Exact row deduplication
-10. **NumericConverter** — String → numeric types
+---
 
-**Evidence columns** (matching configurable patterns) are **never text-cleaned**.
+## 📄 License
 
-## Derived Fields
-
-Generated automatically from available columns:
-
-| Field | Source | Logic |
-|-------|--------|-------|
-| `crime_year` | datetime | Year extraction |
-| `crime_month` | datetime | Month extraction |
-| `crime_week` | datetime | ISO week |
-| `crime_hour` | datetime | Hour extraction |
-| `crime_weekday` | datetime | Day name |
-| `is_weekend` | datetime | Saturday/Sunday |
-| `is_night_crime` | datetime | 22:00–06:00 |
-| `incident_duration_hours` | start/end pair | Duration in hours |
-| `canonical_address` | address columns | Normalized concatenation |
-| `search_text` | text columns | RAG-ready concatenation |
-
-If a source column doesn't exist, the transformation is **skipped gracefully**.
-
-## Reports
-
-Generated in `app/etl/reports/`:
-- `profile/{table}_profile.json` — Data quality analysis
-- `validation/{table}_validation.json` — Integrity checks
-- `pipeline_summary.json` — Overall run summary
-
-## License
-
-Internal project.
+Internal project — Karnataka Police Crime Intelligence Platform.
