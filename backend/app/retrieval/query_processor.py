@@ -7,6 +7,9 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from app.retrieval.schemas import ProcessedQuery
+from app.retrieval.entity_extractor import EntityExtractor
+
 
 class QueryProcessor:
     """Normalizes and cleans raw queries."""
@@ -22,6 +25,9 @@ class QueryProcessor:
         "kgid": "karnataka government id",
     }
 
+    def __init__(self):
+        self.extractor = EntityExtractor()
+
     def process(self, raw_query: str) -> str:
         """Normalize, expand, and clean a raw query."""
         if not raw_query:
@@ -34,6 +40,17 @@ class QueryProcessor:
         text = self._expand_abbreviations(text)
         
         return text.strip()
+
+    def process_with_entities(self, raw_query: str) -> ProcessedQuery:
+        """Normalize query and extract entities."""
+        normalized = self.process(raw_query)
+        entities = self.extractor.extract(normalized)
+        
+        return ProcessedQuery(
+            original_query=raw_query or "",
+            normalized_query=normalized,
+            entities=entities
+        )
 
     def _normalize_unicode(self, text: str) -> str:
         """Normalize unicode characters (e.g., NFKC)."""

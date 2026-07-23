@@ -3,7 +3,7 @@ Tests for Ranking Engine.
 """
 import datetime
 from app.retrieval.config import RetrievalConfig
-from app.retrieval.schemas import RawSearchHit
+from app.retrieval.schemas import RawSearchHit, GraphResult
 from app.retrieval.ranking_engine import RankingEngine
 
 
@@ -30,9 +30,9 @@ def test_ranking_ordering():
         RawSearchHit(score=0.95, document_id="d2", document_type="court_summary", text_preview="", metadata={}, vector_id="")
     ]
     
-    # Sim weights: 0.7*sim + 0.1*type
-    # d1: 0.7*0.9 + 0.1*1.0 = 0.63 + 0.10 = 0.73
-    # d2: 0.7*0.95 + 0.1*0.5 = 0.665 + 0.05 = 0.715
+    # Sim weights: 0.6*sim + 0.1*type
+    # d1: 0.6*0.9 + 0.1*1.0 = 0.54 + 0.10 = 0.64
+    # d2: 0.6*0.95 + 0.1*0.5 = 0.57 + 0.05 = 0.62
     # So d1 should rank higher than d2 despite having lower similarity!
     
     ranked = engine.rank(hits)
@@ -67,3 +67,21 @@ def test_ranking_explanation():
     assert ranked[0].explanation is not None
     assert ranked[0].explanation.similarity_contribution > 0
     assert "priority" in ranked[0].explanation.ranking_reason
+
+def test_ranking_graph_confidence():
+    engine = RankingEngine(get_mock_config())
+    
+    hits = [
+        RawSearchHit(score=0.8, document_id="case_123", document_type="case_summary", text_preview="", metadata={}, vector_id=""),
+        RawSearchHit(score=0.8, document_id="case_456", document_type="case_summary", text_preview="", metadata={}, vector_id="")
+    ]
+    
+    graph_results = [
+        GraphResult(node="Case: case_123", relationship="HAS_ACCUSED", connected_to="John Doe")
+    ]
+    
+    # case_123 should get graph boost
+    ranked = engine.rank(hits, graph_results=graph_results)
+    
+    assert ranked[0].document_id == "case_123"
+    assert ranked[1].document_id == "case_456"

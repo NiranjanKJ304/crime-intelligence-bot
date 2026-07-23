@@ -82,6 +82,16 @@ class Settings(BaseSettings):
     max_context_tokens: int = 4000
     default_document_limit: int = 20
 
+    # ── LLM / RAG ────────────────────────────────────────────────────
+    llm_provider: str = "groq"
+    groq_api_key: str = ""
+    model_name: str = "llama-3.3-70b-versatile"
+    temperature: float = 0.2
+    max_tokens: int = 4096
+    llm_timeout: int = 30
+    llm_max_retries: int = 3
+    max_context_documents: int = 10
+
     # ── Helpers ────────────────────────────────────────────────────────
 
     @property

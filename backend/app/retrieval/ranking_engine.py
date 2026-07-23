@@ -9,7 +9,7 @@ import logging
 from typing import Callable
 
 from app.retrieval.config import RetrievalConfig
-from app.retrieval.schemas import RawSearchHit, RankedResult, ResultExplanation
+from app.retrieval.schemas import RawSearchHit, RankedResult, ResultExplanation, GraphResult
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +29,18 @@ class RankingEngine:
 
     # Signal Weights (must sum to 1.0)
     WEIGHTS = {
-        "similarity": 0.70,
-        "freshness": 0.10,
+        "similarity": 0.60,
+        "graph_confidence": 0.15,
         "type_priority": 0.10,
         "metadata_richness": 0.10,
+        "freshness": 0.05,
     }
 
     def __init__(self, config: RetrievalConfig):
         self.config = config
 
-    def rank(self, hits: list[RawSearchHit], include_explanation: bool = False) -> list[RankedResult]:
-        """Rank raw hits using a composite score."""
+    def rank(self, hits: list[RawSearchHit], include_explanation: bool = False, graph_results: list[GraphResult] = None) -> list[RankedResult]:
+        """Rank raw hits using a composite score including graph confidence."""
         if not hits:
             return []
 
@@ -49,17 +50,19 @@ class RankingEngine:
         for i, hit in enumerate(hits):
             # Compute signals
             sim_score = self._similarity_score(hit)
+            graph_score = self._graph_confidence_score(hit, graph_results)
             fresh_score = self._freshness_score(hit, now)
             type_score = self._type_priority_score(hit)
             meta_score = self._metadata_richness_score(hit)
 
             # Apply weights
             sim_contrib = self.WEIGHTS["similarity"] * sim_score
+            graph_contrib = self.WEIGHTS["graph_confidence"] * graph_score
             fresh_contrib = self.WEIGHTS["freshness"] * fresh_score
             type_contrib = self.WEIGHTS["type_priority"] * type_score
             meta_contrib = self.WEIGHTS["metadata_richness"] * meta_score
 
-            final_score = sim_contrib + fresh_contrib + type_contrib + meta_contrib
+            final_score = sim_contrib + graph_contrib + fresh_contrib + type_contrib + meta_contrib
 
             # Explanation
             explanation = None
@@ -67,6 +70,8 @@ class RankingEngine:
                 reason = f"Cosine similarity ({sim_score:.3f})"
                 if type_score > 0.8:
                     reason += f" + high priority type ({hit.document_type})"
+                if graph_score > 0.0:
+                    reason += f" + corroborated by graph"
                 if fresh_score > 0.8:
                     reason += f" + recently updated"
                     
@@ -75,6 +80,7 @@ class RankingEngine:
                     freshness_contribution=round(fresh_contrib, 3),
                     type_priority_contribution=round(type_contrib, 3),
                     metadata_richness_contribution=round(meta_contrib, 3),
+                    graph_confidence_contribution=round(graph_contrib, 3),
                     ranking_reason=reason
                 )
 
@@ -134,3 +140,27 @@ class RankingEngine:
         total = len(hit.metadata)
         populated = sum(1 for v in hit.metadata.values() if v is not None and v != "")
         return populated / total
+
+    def _graph_confidence_score(self, hit: RawSearchHit, graph_results: list[GraphResult] | None) -> float:
+        """Boost score if the document's entity appears in graph results."""
+        if not graph_results:
+            return 0.0
+            
+        doc_id = hit.document_id.lower()
+        
+        for gr in graph_results:
+            # 1.0 for direct match
+            if doc_id in gr.node.lower() or doc_id in gr.connected_to.lower():
+                return 1.0
+                
+            # If the graph result contains words that match the document id
+            # e.g., node="Case: 123", doc_id="123"
+            parts = gr.node.lower().split()
+            if any(p in doc_id or doc_id in p for p in parts if len(p) > 3):
+                return 0.7
+                
+            parts = gr.connected_to.lower().split()
+            if any(p in doc_id or doc_id in p for p in parts if len(p) > 3):
+                return 0.7
+                
+        return 0.0

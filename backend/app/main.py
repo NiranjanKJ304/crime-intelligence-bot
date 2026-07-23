@@ -121,12 +121,14 @@ def create_app() -> FastAPI:
     from app.api.v1.document_routes import router as document_router
     from app.api.v1.embedding_routes import router as embedding_router
     from app.api.v1.retrieval_routes import router as retrieval_router
+    from app.api.v1.chat_routes import router as chat_router
     
     app.include_router(etl_router)
     app.include_router(graph_router)
     app.include_router(document_router)
     app.include_router(embedding_router)
     app.include_router(retrieval_router)
+    app.include_router(chat_router)
 
     # ── Health Check ───────────────────────────────────────────────
     @app.get("/health", tags=["Health"])

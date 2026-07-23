@@ -1,0 +1,55 @@
+# ── Environment & Secrets ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ── Virtual Environments ──────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Model / HuggingFace Cache ─────────────────────────────────────────
+.cache/
+*.cache
+
+# ── Node / Frontend tooling ───────────────────────────────────────────
+node_modules/
+.next/
+.nuxt/
+dist/
+
+# ── Jupyter ───────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── OS ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Docker ───────────────────────────────────────────────────────────
+docker-compose.override.yml.bak
+
+# ── Qdrant local storage ──────────────────────────────────────────────
+qdrant_storage/
+
+# ── Large generated document stores (not source code) ─────────────────
+backend/app/document_generation/store/
+
+# ── Logs ──────────────────────────────────────────────────────────────
+*.log
+logs/

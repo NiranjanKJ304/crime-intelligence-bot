@@ -8,7 +8,7 @@ import logging
 from collections import defaultdict
 
 from app.retrieval.config import RetrievalConfig
-from app.retrieval.schemas import RankedResult
+from app.retrieval.schemas import RankedResult, GraphResult
 from app.retrieval.utils import estimate_tokens
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,32 @@ class ContextBuilder:
                 break
 
         lines.append("=== END CONTEXT ===")
+        return "\n".join(lines)
+
+    def build_hybrid_context(self, results: list[RankedResult], graph_results: list[GraphResult]) -> str:
+        """Merge semantic search results and graph results into a single context string."""
+        context = self.build_context(results)
+        
+        if not graph_results:
+            return context
+            
+        # We need to inject graph results before === END CONTEXT ===
+        # Or append them after. Let's insert them before.
+        lines = context.split("\n")
+        if lines[-1] == "=== END CONTEXT ===":
+            lines = lines[:-1]
+            
+        lines.append("\n--- Graph Relationships ---")
+        
+        # Deduplicate graph results by node and connected_to to avoid spam
+        seen = set()
+        for gr in graph_results:
+            sig = f"{gr.node}-{gr.relationship}-{gr.connected_to}"
+            if sig not in seen:
+                seen.add(sig)
+                lines.append(f"• {gr.node} -[{gr.relationship}]-> {gr.connected_to}")
+                
+        lines.append("\n=== END CONTEXT ===")
         return "\n".join(lines)
 
     def _deduplicate(self, results: list[RankedResult]) -> list[RankedResult]:

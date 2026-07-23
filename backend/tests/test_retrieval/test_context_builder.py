@@ -3,7 +3,7 @@ Tests for Context Builder.
 """
 
 from app.retrieval.config import RetrievalConfig
-from app.retrieval.schemas import RankedResult
+from app.retrieval.schemas import RankedResult, GraphResult
 from app.retrieval.context_builder import ContextBuilder
 
 
@@ -77,3 +77,23 @@ def test_build_context_truncation():
     
     ctx = builder.build_context(results)
     assert "[TRUNCATED]" in ctx
+
+def test_build_hybrid_context():
+    builder = ContextBuilder(get_mock_config())
+    
+    results = [
+        RankedResult(rank=1, similarity_score=0.9, final_score=0.9, document_id="c1", document_type="case_summary", text_preview="Case 1 text", metadata={}, vector_id="v1"),
+    ]
+    graph_results = [
+        GraphResult(node="Case: c1", relationship="HAS_ACCUSED", connected_to="John Doe"),
+        # Duplicate to test dedup
+        GraphResult(node="Case: c1", relationship="HAS_ACCUSED", connected_to="John Doe")
+    ]
+    
+    ctx = builder.build_hybrid_context(results, graph_results)
+    assert "Case 1 text" in ctx
+    assert "--- Graph Relationships ---" in ctx
+    assert "Case: c1 -[HAS_ACCUSED]-> John Doe" in ctx
+    # Ensure it only appears once
+    assert ctx.count("Case: c1 -[HAS_ACCUSED]-> John Doe") == 1
+    assert ctx.endswith("=== END CONTEXT ===")

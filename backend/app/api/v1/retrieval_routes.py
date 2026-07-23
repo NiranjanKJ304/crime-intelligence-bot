@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.config import Settings, get_settings
 from app.retrieval.schemas import (
-    RetrievalRequest, RetrievalResponse, SearchOnlyResponse, ResultExplanation
+    RetrievalRequest, RetrievalResponse, SearchOnlyResponse, ResultExplanation,
+    HybridResponse, ContextResponse, SimilarCaseRequest, HealthResponse
 )
 from app.retrieval.retrieval_engine import RetrievalEngine
 
@@ -55,6 +56,52 @@ def semantic_search_only(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/hybrid", response_model=HybridResponse)
+def hybrid_search(
+    request: RetrievalRequest,
+    engine: RetrievalEngine = Depends(get_engine)
+) -> HybridResponse:
+    """Execute enterprise hybrid search combining semantic and graph results."""
+    try:
+        return engine.hybrid(request)
+    except ValueError as e:
+        logger.warning(f"Bad request in hybrid search: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Hybrid search failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/context", response_model=ContextResponse)
+def get_context_only(
+    request: RetrievalRequest,
+    engine: RetrievalEngine = Depends(get_engine)
+) -> ContextResponse:
+    """Get only the compiled context string, optimized for LLM consumption."""
+    try:
+        return engine.context(request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Context generation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/similar-case", response_model=HybridResponse)
+def get_similar_case(
+    request: SimilarCaseRequest,
+    engine: RetrievalEngine = Depends(get_engine)
+) -> HybridResponse:
+    """Find similar cases based on a given case ID using hybrid search."""
+    try:
+        return engine.similar_case(request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Similar case search failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/explain/{rank_index}", response_model=ResultExplanation)
 def explain_result(
     rank_index: int,
@@ -96,4 +143,24 @@ def clear_cache(engine: RetrievalEngine = Depends(get_engine)) -> dict:
         return {"status": "success", "items_removed": removed}
     except Exception as e:
         logger.error(f"Cache clear failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/health", response_model=HealthResponse)
+def health_check(engine: RetrievalEngine = Depends(get_engine)) -> HealthResponse:
+    """Get the health status of the retrieval subsystems."""
+    try:
+        return engine.health()
+    except Exception as e:
+        logger.error(f"Health check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/config")
+def get_configuration(engine: RetrievalEngine = Depends(get_engine)) -> dict:
+    """Get the current configuration of the retrieval engine."""
+    try:
+        return engine.get_config()
+    except Exception as e:
+        logger.error(f"Config check failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

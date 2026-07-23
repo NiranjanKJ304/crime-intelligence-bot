@@ -17,18 +17,23 @@ class RetrievalAnalytics:
         
         self.total_queries = 0
         self.total_search_time_ms = 0.0
+        self.total_graph_time_ms = 0.0
         self.total_similarity = 0.0
         self.cache_hits = 0
         self.cache_misses = 0
+        self.hybrid_queries = 0
         self.document_type_counts: dict[str, int] = defaultdict(int)
         self.filter_usage_counts: dict[str, int] = defaultdict(int)
 
-    def record_query(self, search_time_ms: float, top_similarity: float, results_types: list[str], filters: dict[str, Any] | None) -> None:
+    def record_query(self, search_time_ms: float, top_similarity: float, results_types: list[str], filters: dict[str, Any] | None, graph_time_ms: float = 0.0, is_hybrid: bool = False) -> None:
         """Record metrics for a successful search query."""
         with self._lock:
             self.total_queries += 1
             self.total_search_time_ms += search_time_ms
+            self.total_graph_time_ms += graph_time_ms
             self.total_similarity += top_similarity
+            if is_hybrid:
+                self.hybrid_queries += 1
             
             for dt in results_types:
                 self.document_type_counts[dt] += 1
@@ -54,18 +59,23 @@ class RetrievalAnalytics:
             q_count = self.total_queries
             
             avg_search = 0.0
+            avg_graph = 0.0
             avg_sim = 0.0
             if q_count - self.cache_hits > 0: # only average real searches
                 real_searches = q_count - self.cache_hits
                 avg_search = self.total_search_time_ms / real_searches
                 avg_sim = self.total_similarity / real_searches
+            if self.hybrid_queries > 0:
+                avg_graph = self.total_graph_time_ms / self.hybrid_queries
                 
             total_cache = self.cache_hits + self.cache_misses
             hit_ratio = (self.cache_hits / total_cache) if total_cache > 0 else 0.0
             
             return {
                 "total_queries": q_count,
+                "hybrid_queries": self.hybrid_queries,
                 "avg_search_time_ms": round(avg_search, 2),
+                "avg_graph_time_ms": round(avg_graph, 2),
                 "avg_similarity": round(avg_sim, 3),
                 "top_document_types": dict(self.document_type_counts),
                 "most_used_filters": dict(self.filter_usage_counts),
