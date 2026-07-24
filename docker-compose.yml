@@ -24,6 +24,21 @@ services:
       qdrant:
         condition: service_healthy
 
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: crime_bot_streamlit
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      BACKEND_URL: http://backend:8000
+    networks:
+      - crime_network
+    depends_on:
+      - backend
+
   postgres:
     image: postgres:16-alpine
     container_name: crime_bot_postgres

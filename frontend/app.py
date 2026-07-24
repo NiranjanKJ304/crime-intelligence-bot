@@ -110,6 +110,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+from api.client import BackendClient
+
+# ── Health Check ───────────────────────────────────────────────────
+@st.cache_data(ttl=5)
+def check_backend_health():
+    return BackendClient().health()
+
+health_status = check_backend_health()
+
+if not health_status.online:
+    st.error(
+        f"🚨 **Backend Service Unavailable**\n\n"
+        f"The backend services are currently unreachable. Please ensure the backend is running.\n\n"
+        f"**Error Details:** {health_status.error}"
+    )
+    if st.button("Retry Connection", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    st.stop()
+
 # ── Routing ────────────────────────────────────────────────────────
 selected_page = render_sidebar()
 

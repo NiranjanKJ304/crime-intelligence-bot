@@ -2,8 +2,10 @@
 Constants used across the Streamlit frontend.
 """
 
+import os
+
 # ── Backend ────────────────────────────────────────────────────────
-BACKEND_BASE_URL = "http://localhost:8000"
+BACKEND_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 API_CHAT = f"{BACKEND_BASE_URL}/api/v1/chat"
 API_CHAT_STREAM = f"{BACKEND_BASE_URL}/api/v1/chat/stream"
 API_HEALTH = f"{BACKEND_BASE_URL}/health"

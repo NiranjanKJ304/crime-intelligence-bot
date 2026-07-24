@@ -20,19 +20,20 @@ User (Browser)
     ▼
 Streamlit Frontend  ← REST / SSE →  FastAPI Backend
                                          │
-                    ┌────────────────────┤
-                    │                    │
-                    ▼                    ▼
-              PostgreSQL           Groq LLM API
-              (Crime Data)     (llama-3.3-70b-versatile)
+                    ┌────────────────────┴────────────────────┐
+                    │                                         │
+                    ▼                                         ▼
+            Tool Calling Router                        Semantic Search
+            (Exact Lookups)                           (Retrieval Engine)
+                    │                                         │
+                    ▼                                         ▼
+               PostgreSQL                              Groq LLM API
+              (Crime Data)                       (llama-3.3-70b-versatile)
                     │
                     ├──► ETL Pipeline → clean schema
                     ├──► Document Generation
                     ├──► Knowledge Graph → Neo4j
                     └──► Embeddings → Qdrant
-                                   ▲
-                              Semantic Search
-                             (Retrieval Engine)
 ```
 
 ---
@@ -43,10 +44,11 @@ Streamlit Frontend  ← REST / SSE →  FastAPI Backend
 |-------|-----------|
 | API Framework | FastAPI + Uvicorn |
 | LLM Provider | Groq (`llama-3.3-70b-versatile`) |
+| Routing | Tool Calling (LLM exact lookups) |
 | Embedding Model | `BAAI/bge-small-en-v1.5` (384-dim) |
 | Vector Store | Qdrant |
 | Graph Database | Neo4j 5 |
-| Relational DB | PostgreSQL 16 |
+| Relational DB | PostgreSQL 16 (Dynamic Schema Mapper) |
 | Frontend | Streamlit |
 | Streaming | Server-Sent Events (SSE via `sse-starlette`) |
 | Containerization | Docker + Docker Compose |
@@ -74,7 +76,7 @@ cp .env.example .env
 # Open .env and set your GROQ_API_KEY
 ```
 
-### 3. Start the backend
+### 3. Start the Platform
 
 ```bash
 docker compose up -d
@@ -86,15 +88,11 @@ Wait ~30 seconds for all services to become healthy. Check with:
 docker compose ps
 ```
 
-### 4. Start the Streamlit frontend
+The startup process will automatically initialize the database schemas and load the Streamlit frontend.
 
-```bash
-cd frontend
-pip install -r requirements.txt
-streamlit run app.py
-```
+### 4. Access the UI
 
-Then open **http://localhost:8501** in your browser.
+Open **http://localhost:8501** in your browser to access the Crime Intelligence Copilot.
 
 ---
 

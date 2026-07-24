@@ -82,6 +82,7 @@ def _handle_sync(client: BackendClient, query: str) -> None:
         result = client.chat(query, top_k=st.session_state["top_k"])
 
     if result.error:
+        st.error(f"🚨 **Backend Error:** {result.error}")
         st.session_state["messages"].append({"role": "assistant", "content": f"Error: {result.error}"})
         st.session_state["chat_results"].append(result)
     else:
@@ -125,9 +126,13 @@ def _handle_streaming(client: BackendClient, query: str) -> None:
 
             elif evt_type == "error":
                 error = event.get("data", "Unknown error")
+                st.error(f"🚨 **Streaming Error:** {error}")
 
             elif evt_type == "done":
                 break
+                
+        if error and not tokens:
+            response_placeholder.error(f"🚨 **Connection Error:** {error}")
 
     answer = "".join(tokens) if tokens else (error or "No response received.")
 

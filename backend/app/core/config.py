@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3
     max_context_documents: int = 10
 
+    # ── Database Initialization ───────────────────────────────────────
+    auto_initialize_database: bool = True
+    postgres_backup_path: str = ""
+    postgres_csv_path: str = ""
+    postgres_schema_path: str = ""
+    neo4j_backup_path: str = ""
+    neo4j_cypher_path: str = ""
+    qdrant_backup_path: str = ""
+
     # ── Helpers ────────────────────────────────────────────────────────
 
     @property

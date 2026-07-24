@@ -75,6 +75,17 @@ Last updated: **2026-07-23**
 
 ---
 
+## ✅ Phase 6 — Hybrid Architecture & Reliability
+**Status: COMPLETE**
+
+- **Tool Calling (SQL Router)** — Upgraded from pure Semantic RAG to Hybrid AI Retrieval Platform
+- **Dynamic Postgres Schema Mapping** — Added a dynamic mapper to resolve logical identifiers (e.g. `CrimeNumber`) to physical schema columns (e.g. `CrimeNo`), adapting to ETL schema changes automatically
+- **Database Initializer** — Implemented an automatic database initialization system that runs during backend startup if the PostgreSQL/Neo4j databases are empty (executes `schema.sql` securely)
+- **Qdrant Persistence** — Permanently stores vectors outside the Docker container with automatic restore during deployment via volume mapping (`./qdrant_storage:/qdrant/storage`)
+- **Resilient Startup Validation** — Validates dynamic column bindings at startup to ensure API integrity
+
+---
+
 ## ✅ Phase 5 — Streamlit Frontend (AI Copilot UI)
 **Status: COMPLETE**
 
@@ -95,7 +106,7 @@ Last updated: **2026-07-23**
 | PostgreSQL | `postgres:16-alpine` | 5433 (host) |
 | Neo4j | `neo4j:5-community` | 7475/7688 (host) |
 | Qdrant | `qdrant/qdrant:latest` | 6333–6334 |
-| Streamlit Frontend | Python 3.11 | 8501 |
+| Streamlit Frontend | Custom (`crime-bot-streamlit`) | 8501 |
 
 ---
 

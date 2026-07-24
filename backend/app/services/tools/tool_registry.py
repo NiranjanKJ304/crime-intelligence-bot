@@ -65,7 +65,7 @@ class ToolRegistry:
         self._register(
             ToolDefinition(
                 name="get_case_by_crime_number",
-                description="Fetch a criminal case by its CrimeNumber or FIR number string. Returns full case details.",
+                description="Fetch a criminal case by its CrimeNumber or FIR number string. Do not use this for internal Case Numbers.",
                 parameters={
                     "type": "object",
                     "properties": {
@@ -75,6 +75,21 @@ class ToolRegistry:
                 },
             ),
             postgres_tools.get_case_by_crime_number,
+        )
+
+        self._register(
+            ToolDefinition(
+                name="get_case_by_number",
+                description="Fetch a criminal case by its Case Number string. Do not use this for Crime Numbers or FIR Numbers.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "case_number": {"type": "string", "description": "The Case Number string"}
+                    },
+                    "required": ["case_number"],
+                },
+            ),
+            postgres_tools.get_case_by_number,
         )
 
         # ── PostgreSQL: Entity Lookups ────────────────────────────────

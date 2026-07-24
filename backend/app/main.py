@@ -42,6 +42,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # but we should log it.
         logging.getLogger("crime_bot").error(f"Failed to initialize Neo4j: {e}")
         
+    # Database Initialization (PostgreSQL, Neo4j, Qdrant)
+    try:
+        if settings.auto_initialize_database:
+            from app.database_initializer.initializer import DatabaseInitializer
+            initializer = DatabaseInitializer(settings)
+            # Database initializer is synchronous because it uses synchronous SQLAlchemy/psycopg2
+            initializer.initialize_all()
+    except Exception as e:
+        logging.getLogger("crime_bot").error(f"Database Initialization failed: {e}", exc_info=True)
+
+    # Initialize ColumnMapper
+    try:
+        from app.services.tools.mapper import ColumnMapper
+        mapper = ColumnMapper.get_instance()
+        mapper.initialize()
+    except Exception as e:
+        logging.getLogger("crime_bot").error(f"ColumnMapper Initialization failed: {e}", exc_info=True)
+        raise RuntimeError(f"Startup validation failed: {e}")
+
+        
     # Validate and Init Embedding Model
     logger = logging.getLogger("crime_bot")
     try:

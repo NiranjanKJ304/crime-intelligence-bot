@@ -10,6 +10,7 @@ The stack includes:
 | `crime_bot_postgres` | `postgres:16-alpine` | `5433` | Relational data (raw + clean) |
 | `crime_bot_neo4j` | `neo4j:5-community` | `7475` (HTTP) / `7688` (Bolt) | Knowledge graph |
 | `crime_bot_qdrant` | `qdrant/qdrant:latest` | `6333–6334` | Vector database |
+| `crime_bot_streamlit`| Custom Streamlit image | `8501` | User Interface |
 
 > **Note:** Host ports are offset from defaults (5433 instead of 5432, 7475/7688 instead of 7474/7687) to avoid conflicts with local database installations.
 
@@ -84,23 +85,27 @@ Expected response:
 | **Swagger UI** | http://localhost:8000/docs | — |
 | **Neo4j Browser** | http://localhost:7475 | `neo4j` / `supersecret_neo4j_password` |
 | **Qdrant Dashboard** | http://localhost:6333/dashboard | — |
-| **Streamlit UI** | http://localhost:8501 | *(run separately — see below)* |
+| **Streamlit UI** | http://localhost:8501 | — |
 
 ---
 
 ## Running the Streamlit Frontend
 
-The frontend is a separate Streamlit app and is **not** part of the Docker Compose stack. Run it locally:
+The frontend is now fully integrated into the Docker Compose stack. 
+It starts automatically on port `8501`. 
 
-```bash
-cd frontend
-pip install -r requirements.txt
-streamlit run app.py
-```
+Open **http://localhost:8501** in your browser to access the Chat UI.
 
-Then open **http://localhost:8501** in your browser.
+If the backend is not yet healthy, Streamlit will display a friendly "Backend Unavailable" message with a retry button instead of crashing.
 
-The sidebar will show **"Backend: Online"** once the Docker containers are healthy.
+---
+
+## Automatic Database Initialization
+
+When the backend container starts, it automatically checks the PostgreSQL and Neo4j databases. 
+If they are empty, it will automatically execute `schema.sql` (to create tables) and seed any required initial data. 
+
+This ensures that the application is ready to use immediately without manual schema imports.
 
 ---
 
