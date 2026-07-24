@@ -78,7 +78,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - qdrant_storage:/qdrant/storage
+      - ./qdrant_storage:/qdrant/storage
     networks:
       - crime_network
     healthcheck:
@@ -96,4 +96,3 @@ volumes:
   neo4j_data:
   neo4j_logs:
   neo4j_plugins:
-  qdrant_storage:

@@ -193,3 +193,42 @@ docker compose up -d --build backend
 3. **Add a reverse proxy** — place NGINX or Traefik in front of port 8000 to handle SSL/TLS termination
 4. **Restrict ports** — expose only ports 80/443 externally; keep 5433, 7475, 7688, and 6333 internal-only
 5. **Set `DEBUG=False`** in `.env` (already the default)
+
+---
+
+## Qdrant Storage & Automated Backups
+
+Vector embeddings can be expensive to generate. To prevent data loss, Qdrant storage is configured as a **local bind mount** (`./qdrant_storage`) rather than a Docker volume.
+
+### How Storage Works
+- The `qdrant` container maps its internal `/qdrant/storage` to the `./qdrant_storage` directory in the repository root.
+- All collections and embeddings are saved directly to your host disk.
+- **Vectors survive `docker compose down -v`**, as well as container deletion and recreation.
+
+### How to Create a New Snapshot (Backup)
+Use the provided backup scripts to compress the storage directory safely.
+- **Linux/macOS:** `./scripts/backup_qdrant.sh`
+- **Windows:** `.\scripts\backup_qdrant.ps1`
+
+This will output an archive (`qdrant_storage.tar.gz` or `qdrant_storage.zip`) containing all vector data.
+
+### How Restore Works
+If you have a backup archive in the root directory, the restore script will replace the current local storage with the backup.
+- **Linux/macOS:** `./scripts/restore_qdrant.sh`
+- **Windows:** `.\scripts\restore_qdrant.ps1`
+
+### How to Migrate to Another Server
+1. Generate vectors and create a backup archive on Server A.
+2. Upload the archive to cloud storage (e.g., S3, Google Drive, Azure Blob).
+3. Clone this repository on Server B.
+4. Set `QDRANT_BACKUP_URL=https://your-cloud-storage/qdrant_storage.zip` in your `.env` file.
+5. Run the deployment script (`./scripts/deploy.sh` or `.\scripts\deploy.ps1`).
+
+The deployment script will automatically download the backup, extract it, and start the Docker containers. Qdrant will immediately contain all vectors without needing to regenerate them.
+
+### How to Update Vectors
+If you need to re-embed data or update vectors, you must clear the Qdrant storage before running the ingestion pipeline:
+1. Stop the cluster: `docker compose stop`
+2. Delete the storage directory: `rm -rf qdrant_storage` (Linux) or `Remove-Item qdrant_storage -Recurse -Force` (Windows).
+3. Start the cluster: `docker compose up -d`
+4. Run the ETL and Graph generation pipelines to re-ingest all vectors.

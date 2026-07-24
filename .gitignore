@@ -46,6 +46,8 @@ docker-compose.override.yml.bak
 
 # ── Qdrant local storage ──────────────────────────────────────────────
 qdrant_storage/
+qdrant_storage.zip
+qdrant_storage.tar.gz
 
 # ── Large generated document stores (not source code) ─────────────────
 backend/app/document_generation/store/
