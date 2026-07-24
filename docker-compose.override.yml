@@ -4,6 +4,7 @@ services:
     # Overrides for local development
     volumes:
       - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
       # Mount the store specifically to ensure host and container sync
       - ./backend/app/document_generation/store:/app/app/document_generation/store
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-exclude", "app/document_generation/store*"]

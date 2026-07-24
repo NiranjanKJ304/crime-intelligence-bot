@@ -62,6 +62,41 @@ class GroqProvider(BaseProvider):
         except Exception as e:
             logger.exception("Unexpected error in Groq generation")
             raise LLMError(f"Unexpected error: {e}")
+
+    async def generate_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        tool_choice: str = "auto",
+    ):
+        """
+        Call Groq API with tool/function definitions.
+        Returns the raw API response object so the caller can inspect tool_calls.
+        """
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=False,
+            )
+            return response
+
+        except APIConnectionError as e:
+            logger.error(f"Groq connection error (tools): {e}")
+            raise LLMConnectionError(f"Failed to connect to Groq: {e}")
+        except RateLimitError as e:
+            logger.error(f"Groq rate limit error (tools): {e}")
+            raise LLMRateLimitError(f"Rate limited by Groq: {e}")
+        except APIError as e:
+            logger.error(f"Groq API error (tools): {e}")
+            raise LLMError(f"Groq API returned an error: {e}")
+        except Exception as e:
+            logger.exception("Unexpected error in Groq tool-calling generation")
+            raise LLMError(f"Unexpected error: {e}")
             
     async def stream(self, system_prompt: str, user_prompt: str) -> AsyncGenerator[str, None]:
         """Stream chunks from Groq API."""

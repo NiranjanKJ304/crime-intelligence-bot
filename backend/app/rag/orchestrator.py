@@ -17,6 +17,7 @@ from app.llm.prompt_builder import PromptBuilder
 from app.rag.validator import QueryValidator
 from app.rag.citation_builder import CitationBuilder
 from app.rag.response_builder import ResponseBuilder
+from app.services.tools.router import QueryRouter
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,16 @@ class RAGOrchestrator:
         
     async def chat(self, request: ChatRequest) -> ChatResponse:
         """Run the full GraphRAG pipeline synchronously."""
+        # 0. Try tool-calling route first
+        try:
+            router = QueryRouter(self.settings)
+            tool_response = await router.route(request)
+            if tool_response is not None:
+                logger.info("Chat handled via tool-calling pipeline")
+                return tool_response
+        except Exception as e:
+            logger.warning(f"Tool-calling route failed, falling back to RAG: {e}")
+
         # 1. Validate
         cleaned_query = QueryValidator.validate(request.query)
         
@@ -100,6 +111,24 @@ class RAGOrchestrator:
         
     async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[str, None]:
         """Run the full GraphRAG pipeline and stream the LLM response (SSE format)."""
+        # 0. Try tool-calling route first (non-streaming — send full result)
+        try:
+            router = QueryRouter(self.settings)
+            tool_response = await router.route(request)
+            if tool_response is not None:
+                logger.info("Stream chat handled via tool-calling pipeline")
+                yield json.dumps({'event': 'token', 'data': tool_response.answer})
+                final_data = {
+                    "event": "complete",
+                    "citations": [c.model_dump() for c in tool_response.citations],
+                    "sources": tool_response.sources,
+                }
+                yield json.dumps(final_data)
+                yield "[DONE]"
+                return
+        except Exception as e:
+            logger.warning(f"Tool-calling route failed in stream, falling back to RAG: {e}")
+
         # 1. Validate
         cleaned_query = QueryValidator.validate(request.query)
         
