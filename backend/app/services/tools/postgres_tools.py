@@ -342,9 +342,14 @@ def get_chargesheet_status(case_id: int) -> ChargesheetDTO | None:
     mapper = ColumnMapper.get_instance()
     col = mapper.get_column("clean_ChargesheetDetails", "case_id")
     date_col = mapper.get_column("clean_ChargesheetDetails", "date")
-    court_col = mapper.get_column("clean_ChargesheetDetails", "court_name")
     
-    cols = f'"{col}", "{date_col}", "{court_col}"'
+    try:
+        court_col = mapper.get_column("clean_ChargesheetDetails", "court_name")
+        cols = f'"{col}", "{date_col}", "{court_col}"'
+    except Exception:
+        court_col = None
+        cols = f'"{col}", "{date_col}"'
+
     rows = _execute_query(
         f'SELECT {cols} FROM "{CLEAN_SCHEMA}"."clean_ChargesheetDetails" WHERE "{col}" = :cid LIMIT 1',
         {"cid": case_id},
@@ -357,7 +362,7 @@ def get_chargesheet_status(case_id: int) -> ChargesheetDTO | None:
     return ChargesheetDTO(
         filed=True,
         date=row.get(date_col),
-        court_name=row.get(court_col)
+        court_name=row.get(court_col) if court_col else None
     )
 
 
