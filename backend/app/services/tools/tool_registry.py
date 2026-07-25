@@ -16,13 +16,14 @@ import time
 from typing import Any, Callable
 
 from app.services.tools.schemas import ToolDefinition, ToolCall, ToolResult
-from app.services.tools import postgres_tools, neo4j_tools, qdrant_tools
+from app.services.tools import neo4j_tools, qdrant_tools
+from app.services.tools.context_builder import ContextBuilder
 
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """Singleton registry of all available tools."""
+    """Singleton registry of all available tools for the LLM."""
 
     _instance: ToolRegistry | None = None
 
@@ -44,207 +45,40 @@ class ToolRegistry:
         self._functions[definition.name] = func
 
     def _register_all(self) -> None:
-        """Register every tool with its schema and implementation."""
+        """Register the minimal set of tools the LLM needs for reasoning."""
 
-        # ── PostgreSQL: Case Lookups ──────────────────────────────────
+        # ── PostgreSQL: Compact Context ───────────────────────────────
         self._register(
             ToolDefinition(
-                name="get_case_by_id",
-                description="Fetch a criminal case by its CaseMasterID number. Returns full case details including accused, victims, arrests, and chargesheets.",
+                name="get_case_summary",
+                description="Fetch a highly compact text summary of a case, including its status, officers, victims, accused, and chargesheet. Use this to get context for reasoning queries about a case.",
                 parameters={
                     "type": "object",
                     "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID of the case to look up"}
+                        "case_id": {"type": "integer", "description": "The CaseMasterID"}
                     },
                     "required": ["case_id"],
                 },
             ),
-            postgres_tools.get_case_by_id,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_case_by_crime_number",
-                description="Fetch a criminal case by its CrimeNumber or FIR number string. Do not use this for internal Case Numbers.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "crime_number": {"type": "string", "description": "The CrimeNumber / FIR number string"}
-                    },
-                    "required": ["crime_number"],
-                },
-            ),
-            postgres_tools.get_case_by_crime_number,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_case_by_number",
-                description="Fetch a criminal case by its Case Number string. Do not use this for Crime Numbers or FIR Numbers.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_number": {"type": "string", "description": "The Case Number string"}
-                    },
-                    "required": ["case_number"],
-                },
-            ),
-            postgres_tools.get_case_by_number,
-        )
-
-        # ── PostgreSQL: Entity Lookups ────────────────────────────────
-        self._register(
-            ToolDefinition(
-                name="get_officer",
-                description="Fetch details of a police officer or employee by their EmployeeID.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "officer_id": {"type": "integer", "description": "The EmployeeID of the officer"}
-                    },
-                    "required": ["officer_id"],
-                },
-            ),
-            postgres_tools.get_officer,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_victim",
-                description="Fetch details of a victim by their VictimMasterID.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "victim_id": {"type": "integer", "description": "The VictimMasterID of the victim"}
-                    },
-                    "required": ["victim_id"],
-                },
-            ),
-            postgres_tools.get_victim,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_accused",
-                description="Fetch details of an accused person by their AccusedMasterID.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "accused_id": {"type": "integer", "description": "The AccusedMasterID of the accused"}
-                    },
-                    "required": ["accused_id"],
-                },
-            ),
-            postgres_tools.get_accused,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_complainant",
-                description="Fetch details of a complainant by their ComplainantID.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "complainant_id": {"type": "integer", "description": "The ComplainantID"}
-                    },
-                    "required": ["complainant_id"],
-                },
-            ),
-            postgres_tools.get_complainant,
-        )
-
-        # ── PostgreSQL: Relationship Lookups ──────────────────────────
-        self._register(
-            ToolDefinition(
-                name="get_case_accused_list",
-                description="Fetch all accused persons associated with a specific case.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID of the case"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            postgres_tools.get_case_accused_list,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_case_victims_list",
-                description="Fetch all victims associated with a specific case.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID of the case"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            postgres_tools.get_case_victims_list,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_arrest_details",
-                description="Fetch arrest and surrender records for a case.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID of the case"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            postgres_tools.get_arrest_details,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_chargesheet",
-                description="Fetch chargesheet details filed for a case.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID of the case"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            postgres_tools.get_chargesheet,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_cases_by_station",
-                description="Fetch cases registered at a specific police station.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "station_id": {"type": "integer", "description": "The UnitID of the police station"}
-                    },
-                    "required": ["station_id"],
-                },
-            ),
-            postgres_tools.get_cases_by_station,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_act_sections",
-                description="Fetch the IPC act and section associations for a case.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID of the case"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            postgres_tools.get_act_sections,
+            ContextBuilder.build_case_summary_context,
         )
 
         # ── Neo4j: Relationship Queries ───────────────────────────────
+        self._register(
+            ToolDefinition(
+                name="find_case_network",
+                description="Find the full network of a case — accused, victims, officers, stations. Uses the knowledge graph.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "case_id": {"type": "integer", "description": "The CaseMasterID"}
+                    },
+                    "required": ["case_id"],
+                },
+            ),
+            neo4j_tools.find_case_network,
+        )
+        
         self._register(
             ToolDefinition(
                 name="find_related_accused",
@@ -260,86 +94,11 @@ class ToolRegistry:
             neo4j_tools.find_related_accused,
         )
 
-        self._register(
-            ToolDefinition(
-                name="find_officer_cases",
-                description="Find all cases investigated by a specific officer. Uses the knowledge graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "officer_id": {"type": "integer", "description": "The EmployeeID of the officer"}
-                    },
-                    "required": ["officer_id"],
-                },
-            ),
-            neo4j_tools.find_officer_cases,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="find_co_accused",
-                description="Find all accused persons on the same case. Uses the knowledge graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            neo4j_tools.find_co_accused,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="find_case_network",
-                description="Find the full network of a case — accused, victims, officers, stations. Uses the knowledge graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            neo4j_tools.find_case_network,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="get_case_timeline",
-                description="Get the chronological timeline of events for a case (arrests, chargesheets). Uses the knowledge graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "case_id": {"type": "integer", "description": "The CaseMasterID"}
-                    },
-                    "required": ["case_id"],
-                },
-            ),
-            neo4j_tools.get_case_timeline,
-        )
-
-        self._register(
-            ToolDefinition(
-                name="find_accused_who_appear_together",
-                description="Find other accused who frequently appear on the same cases (potential gang members). Uses the knowledge graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "accused_id": {"type": "integer", "description": "The AccusedMasterID"}
-                    },
-                    "required": ["accused_id"],
-                },
-            ),
-            neo4j_tools.find_accused_who_appear_together,
-        )
-
         # ── Qdrant: Semantic Search ───────────────────────────────────
         self._register(
             ToolDefinition(
                 name="search_similar_cases",
-                description="Perform semantic search across all crime documents. Use this for natural language queries about crime types, patterns, modus operandi, or descriptions. Returns ranked similar documents.",
+                description="Perform semantic search across all crime documents. Use this for natural language queries about crime types, patterns, modus operandi, or descriptions.",
                 parameters={
                     "type": "object",
                     "properties": {
@@ -382,7 +141,7 @@ class ToolRegistry:
 
         # Determine source
         source = "postgresql"
-        if name.startswith("find_") or name == "get_case_timeline":
+        if name.startswith("find_"):
             source = "neo4j"
         if name == "search_similar_cases":
             source = "qdrant"
@@ -396,6 +155,8 @@ class ToolRegistry:
             if isinstance(result_data, list):
                 rows = len(result_data)
             elif isinstance(result_data, dict):
+                rows = 1
+            elif isinstance(result_data, str):
                 rows = 1
             elif result_data is None:
                 rows = 0

@@ -92,9 +92,11 @@ class BackendClient:
         self._timeout = timeout
 
     # ── Chat (synchronous response) ────────────────────────────────
-    def chat(self, query: str, top_k: int = 5, filters: dict | None = None) -> ChatResult:
+    def chat(self, query: str, top_k: int = 5, filters: dict | None = None, history: list[dict] | None = None) -> ChatResult:
         """POST /api/v1/chat — full response in one shot."""
         payload: dict[str, Any] = {"query": query, "top_k": top_k, "stream": False}
+        if history:
+            payload["history"] = history
         if filters:
             payload["filters"] = filters
 
@@ -144,7 +146,7 @@ class BackendClient:
         )
 
     # ── Chat (streaming) ──────────────────────────────────────────
-    def chat_stream(self, query: str, top_k: int = 5, filters: dict | None = None) -> Generator[dict, None, None]:
+    def chat_stream(self, query: str, top_k: int = 5, filters: dict | None = None, history: list[dict] | None = None) -> Generator[dict, None, None]:
         """POST /api/v1/chat/stream — yields SSE events as dicts.
 
         Each yielded dict has:
@@ -154,6 +156,8 @@ class BackendClient:
             {"event": "error", "data": "..."}
         """
         payload: dict[str, Any] = {"query": query, "top_k": top_k, "stream": True}
+        if history:
+            payload["history"] = history
         if filters:
             payload["filters"] = filters
 

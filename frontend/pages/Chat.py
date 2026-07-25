@@ -69,17 +69,29 @@ def render() -> None:
         st.session_state["messages"].append({"role": "user", "content": query})
         st.session_state["chat_results"].append(None)  # placeholder
 
+        # Build conversation history for the backend (exclude the current query)
+        history = _get_history()
+
         # Decide sync vs streaming
         if st.session_state.get("streaming", True):
-            _handle_streaming(client, query)
+            _handle_streaming(client, query, history)
         else:
-            _handle_sync(client, query)
+            _handle_sync(client, query, history)
 
 
-def _handle_sync(client: BackendClient, query: str) -> None:
+def _get_history() -> list[dict[str, str]]:
+    """Extract conversation history from session state for the backend."""
+    history = []
+    for msg in st.session_state["messages"][:-1]:  # Exclude the just-appended user message
+        if msg["role"] in ("user", "assistant") and msg.get("content"):
+            history.append({"role": msg["role"], "content": msg["content"]})
+    return history[-6:]  # Last 3 turns
+
+
+def _handle_sync(client: BackendClient, query: str, history: list[dict] | None = None) -> None:
     """Send a synchronous chat request and display the full response."""
     with st.spinner("🔍  Searching crime intelligence…"):
-        result = client.chat(query, top_k=st.session_state["top_k"])
+        result = client.chat(query, top_k=st.session_state["top_k"], history=history)
 
     if result.error:
         st.error(f"🚨 **Backend Error:** {result.error}")
@@ -92,7 +104,7 @@ def _handle_sync(client: BackendClient, query: str) -> None:
     st.rerun()
 
 
-def _handle_streaming(client: BackendClient, query: str) -> None:
+def _handle_streaming(client: BackendClient, query: str, history: list[dict] | None = None) -> None:
     """Stream tokens from the backend and display them incrementally."""
 
     # Placeholder for the streaming response
@@ -104,7 +116,7 @@ def _handle_streaming(client: BackendClient, query: str) -> None:
 
         response_placeholder = st.empty()
 
-        for event in client.chat_stream(query, top_k=st.session_state["top_k"]):
+        for event in client.chat_stream(query, top_k=st.session_state["top_k"], history=history):
             evt_type = event.get("event", "")
 
             if evt_type == "token":

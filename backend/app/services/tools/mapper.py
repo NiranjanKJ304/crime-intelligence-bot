@@ -33,27 +33,42 @@ class ColumnMapper:
                 "case_id": ["casemasterid", "case_id", "id"],
                 "case_number": ["caseno", "case_no", "casenumber", "case_number"],
                 "crime_number": ["crimeno", "firno", "crime_number", "fir_number", "crimenumber"],
-                "station_id": ["policestationid", "stationid", "station_id"],
+                "station_id": ["policestationid", "stationid", "station_id", "unitid"],
+                "officer_id": ["policepersonid", "employeeid", "officerid", "io_id"],
+                "status": ["status", "casestatus"],
             },
             "clean_Employee": {
                 "officer_id": ["employeeid", "officerid", "policepersonid", "id"],
+                "name": ["name", "employeename", "officername", "policepersonname"],
+                "kgid": ["kgid", "kgid_no"],
+                "designation": ["designation"],
+                "rank": ["rank"],
             },
             "clean_Victim": {
                 "victim_id": ["victimmasterid", "victimid", "id"],
                 "case_id": ["casemasterid", "case_id"],
+                "name": ["victimname", "name"],
+                "age": ["age"],
+                "gender": ["sex", "gender"],
             },
             "clean_Accused": {
                 "accused_id": ["accusedmasterid", "accusedid", "id"],
                 "case_id": ["casemasterid", "case_id"],
+                "name": ["accusedname", "name"],
+                "age": ["age"],
+                "gender": ["sex", "gender"],
             },
             "clean_ComplainantDetails": {
                 "complainant_id": ["complainantid", "id"],
+                "case_id": ["casemasterid", "case_id"],
             },
             "clean_ArrestSurrender": {
                 "case_id": ["casemasterid", "case_id"],
             },
             "clean_ChargesheetDetails": {
                 "case_id": ["casemasterid", "case_id"],
+                "date": ["csdate", "date", "chargesheetdate"],
+                "court_name": ["courtname", "court", "court_name"],
             },
             "clean_ActSectionAssociation": {
                 "case_id": ["casemasterid", "case_id"],

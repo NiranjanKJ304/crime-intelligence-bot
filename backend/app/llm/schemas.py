@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     filters: dict[str, Any] | None = None
     top_k: int | None = None
     stream: bool = False
+    history: list[dict[str, str]] | None = None  # Previous conversation turns
 
 class Citation(BaseModel):
     """A citation referencing a retrieved document."""

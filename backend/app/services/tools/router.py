@@ -1,12 +1,10 @@
 """
-Query Router.
+Query Router — Hybrid Retrieval + Tool Planning Architecture.
 
-Orchestrates the tool-calling flow:
-1. Run intent detection (for logging/metrics)
-2. Call Groq API with tool definitions
-3. If the LLM returns tool_calls → execute them, feed results back for synthesis
-4. If the LLM returns a direct text response → return None (fall back to existing RAG)
-5. Build the final ChatResponse
+Orchestrates the decision flow:
+1. Intent Detection
+2. Factual Queries → Direct DB Lookup + Template Engine (0 LLM calls)
+3. Reasoning Queries → LLM Tool Chaining with compact context
 """
 
 from __future__ import annotations
@@ -22,30 +20,30 @@ from app.llm.providers.groq_provider import GroqProvider
 from app.rag.response_builder import ResponseBuilder
 from app.services.tools.schemas import ToolCall, ToolResult
 from app.services.tools.tool_registry import ToolRegistry
-from app.services.tools.intent_detector import IntentDetector
+from app.services.tools.intent_detector import IntentDetector, DetectedIntent
+from app.services.tools import postgres_tools
+from app.services.tools.template_engine import TemplateEngine
 
 logger = logging.getLogger(__name__)
 
+MAX_ITERATIONS = 3  # Reduced from 5 since we use less tools now
+
 TOOL_SYSTEM_PROMPT = """You are an AI Investigation Assistant for Karnataka Police.
 
-You have access to the following tools to retrieve real data from police databases:
-- PostgreSQL database tools for exact ID lookups (cases, officers, victims, accused)
-- Neo4j knowledge graph tools for relationship queries (co-accused, case networks, timelines)
-- Qdrant semantic search for natural language queries about crime types and patterns
+You have access to the following tools:
+- get_case_summary: Get a highly compact summary of a case to answer reasoning questions.
+- search_similar_cases: Find cases by description or modus operandi.
+- find_case_network / find_related_accused: Find graph relationships.
 
 RULES:
-1. When a user asks about a specific case, officer, victim, or accused by ID or number, ALWAYS use the appropriate tool to look up the real data. Never guess or fabricate records.
-2. When a user asks about relationships between entities (who arrested whom, co-accused, etc.), use the Neo4j graph tools.
-3. When a user asks about crime types, patterns, or uses descriptive language, use search_similar_cases for semantic search.
-4. For mixed queries (e.g., "show case 1 and similar robbery cases"), call MULTIPLE tools.
-5. If a tool returns no results, tell the user clearly that no matching records were found.
-6. Never fabricate case numbers, officer names, victim details, or any other data.
-7. Never expose internal database IDs, SQL queries, or Cypher queries to the user.
-8. Present data in a clear, professional format suitable for law enforcement."""
+1. When asked to summarize or reason about a specific case, ALWAYS call get_case_summary first.
+2. If a tool returns no results, tell the user clearly.
+3. Present data in a clear, professional format suitable for law enforcement.
+4. When the user refers to "that case", resolve the reference from the conversation history."""
 
 
 class QueryRouter:
-    """Routes queries through tool-calling or falls back to semantic RAG."""
+    """Routes queries through the hybrid pipeline."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -54,134 +52,204 @@ class QueryRouter:
 
     async def route(self, request: ChatRequest) -> ChatResponse | None:
         """
-        Attempt to route the query through tool calling.
-        Returns a ChatResponse if tools were used, or None to fall back to RAG.
+        Main entry point for routing.
         """
         start_time = time.time()
 
-        # 1. Intent detection (for logging/metrics)
+        # 1. Intent detection
         intent = IntentDetector.detect(request.query)
-        logger.info(f"QueryRouter | intent={intent.intent} | confidence={intent.confidence} | query={request.query[:80]}")
+        logger.info(f"QueryRouter | intent={intent.intent} | sub={intent.sub_intent} | query={request.query[:80]}")
 
-        # 2. Build messages with tool definitions
-        messages = [
-            {"role": "system", "content": TOOL_SYSTEM_PROMPT},
-            {"role": "user", "content": request.query},
-        ]
+        # Try to resolve missing identifiers from conversation history
+        self._resolve_history_identifiers(intent, request.history)
 
-        tools = self.registry.get_tools_for_llm()
+        # 2. Planning and Execution
+        from app.services.tools.planner import QueryPlanner
+        ctx = QueryPlanner.execute(intent)
 
-        # 3. First LLM call — let the model decide whether to use tools
+        # 3. Decision Engine
+        if intent.intent in ("factual_query", "identifier_lookup"):
+            logger.info("Routing to Factual/Template Path (0 LLM calls)")
+            return self._handle_factual(intent, ctx, request.query, start_time)
+
+        # 4. LLM Reasoning Path
+        logger.info("Routing to LLM Reasoning Path")
+        return await self._handle_reasoning(intent, ctx, request, start_time)
+
+    def _resolve_history_identifiers(self, intent: DetectedIntent, history: list[dict] | None):
+        """Extract missing identifiers from history (e.g., 'that case')."""
+        if not history or intent.identifiers:
+            return
+            
+        import re
+        for msg in reversed(history):
+            content = msg.get("content", "")
+            match = re.search(r'\b(?:Case Number|Case No|Case)\s*[:#\-\s]*(\d+)', content, re.IGNORECASE)
+            if match:
+                intent.identifiers["case_number"] = str(match.group(1))
+                logger.info(f"Resolved missing case_number={intent.identifiers['case_number']} from history.")
+                return
+
+    def _handle_factual(self, intent: DetectedIntent, ctx: Any, query: str, start_time: float) -> ChatResponse:
+        """Handle simple facts deterministically with 0 LLM calls."""
+        
+        if ctx.has_error():
+            answer = "\n".join(ctx.errors)
+            metrics = self._build_metrics(start_time, 0, 0, 0)
+            return ResponseBuilder.build(query, answer, [], [], metrics)
+
+        if not intent.identifiers:
+            answer = "I'm sorry, I couldn't identify which case or person you are asking about."
+            metrics = self._build_metrics(start_time, 0, 0, 0)
+            return ResponseBuilder.build(query, answer, [], [], metrics)
+
+        case_id = str(ctx.case_id) if ctx.case_id else ""
+        data = None
+
+        if intent.intent == "factual_query":
+            sub = intent.sub_intent
+            if sub == "officer_for_case":
+                data = ctx.officer
+            elif sub == "victim_for_case":
+                data = ctx.victims
+            elif sub == "accused_for_case":
+                data = ctx.accused
+            elif sub == "chargesheet_for_case":
+                data = ctx.chargesheet
+            elif sub == "status_for_case":
+                data = ctx.case_lookup
+                
+            answer = TemplateEngine.render_factual_response(intent.sub_intent or "", data, case_id)
+
+        elif intent.intent == "identifier_lookup":
+            sub = intent.sub_intent
+            if sub in ("case_by_number", "case_by_crime"):
+                data = ctx.case_lookup
+            elif sub == "officer":
+                data = ctx.officer
+            elif sub == "victim":
+                data = ctx.victims[0] if ctx.victims else None
+            elif sub == "accused":
+                data = ctx.accused[0] if ctx.accused else None
+                
+            answer = TemplateEngine.render_identifier_response(intent.sub_intent or "", data)
+            
+        else:
+            answer = "I could not process this factual query."
+
+        tool_time_ms = (time.time() - start_time) * 1000
+
+        # Build response with 0 prompt/completion tokens
+        metrics = self._build_metrics(start_time, tool_time_ms, 0, 0, docs=1 if data else 0)
+        citations = [Citation(document_id="db", document_type="postgresql", score=1.0, text_snippet="Database lookup")] if data else []
+        
+        return ResponseBuilder.build(query, answer, citations, ctx.tools_executed, metrics)
+
+    async def _handle_reasoning(self, intent: DetectedIntent, ctx: Any, request: ChatRequest, start_time: float) -> ChatResponse | None:
+        """Handle reasoning queries using pre-fetched context (1 LLM call)."""
+        
+        if ctx.has_error():
+            answer = "\n".join(ctx.errors)
+            metrics = self._build_metrics(start_time, 0, 0, 0)
+            return ResponseBuilder.build(request.query, answer, [], [], metrics)
+
+        # 1. Build the context string from PlannerContext
+        context_parts = []
+        if ctx.case_summary_text:
+            context_parts.append(f"### Case Summary\n{ctx.case_summary_text}")
+        if ctx.network:
+            import json
+            context_parts.append(f"### Case Network\n{json.dumps(ctx.network, indent=2)}")
+        if ctx.accused:
+            import json
+            # Just grab dicts if they are from neo4j or DTOs if from postgres
+            clean_accused = [a if isinstance(a, dict) else a.__dict__ for a in ctx.accused]
+            context_parts.append(f"### Co-Accused\n{json.dumps(clean_accused, indent=2)}")
+        if ctx.timeline:
+            import json
+            context_parts.append(f"### Timeline\n{json.dumps(ctx.timeline, indent=2)}")
+        if ctx.semantic_results:
+            import json
+            context_parts.append(f"### Semantic Search Results\n{json.dumps(ctx.semantic_results, indent=2)}")
+            
+        context_str = "\n\n".join(context_parts)
+        if not context_str:
+            context_str = "No specific context could be retrieved for this query."
+
+        # 2. Build Messages
+        # The prompt is simpler now because it doesn't need to instruct on tool usage.
+        system_prompt = (
+            "You are an AI Investigation Assistant for Karnataka Police.\n"
+            "Use the provided context to answer the user's query.\n"
+            "If the context doesn't contain the answer, say so clearly.\n"
+            "Context:\n\n" + context_str
+        )
+        
+        messages = [{"role": "system", "content": system_prompt}]
+
+        if request.history:
+            for msg in request.history[-6:]:
+                if msg.get("role") in ("user", "assistant") and msg.get("content"):
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+        messages.append({"role": "user", "content": request.query})
+
+        # 3. Call LLM (No tools passed)
+        tool_time_ms = (time.time() - start_time) * 1000
+        
         try:
-            first_response = await self.provider.generate_with_tools(messages, tools)
+            # Reusing generate_with_tools without tools just calls the normal completion
+            # We can use the simple generate method for speed
+            response = await self.provider.generate(system_prompt, request.query) # simplified, ideally pass history
+            
+            # Since generate takes system and user strings, let's just format the prompt for the base generate method
+            # Actually our provider.generate doesn't take history list easily, 
+            # let's just use generate_with_tools with an empty tools list to support history
+            raw_response = await self.provider.client.chat.completions.create(
+                model=self.provider.model_name,
+                messages=messages,
+                temperature=self.provider.temperature,
+                max_tokens=self.provider.max_tokens,
+                stream=False
+            )
+            
+            prompt_tok = raw_response.usage.prompt_tokens if raw_response.usage else 0
+            comp_tok = raw_response.usage.completion_tokens if raw_response.usage else 0
+            answer = raw_response.choices[0].message.content or "No response generated."
+            
         except Exception as e:
-            logger.error(f"QueryRouter | LLM call failed: {e}")
-            return None  # Fall back to existing RAG pipeline
-
-        first_choice = first_response.choices[0]
-
-        # 4. Check if the LLM wants to call tools
-        if not first_choice.message.tool_calls:
-            # No tool calls — the LLM wants to answer directly or it's a semantic query
-            # Return None to let the existing RAG pipeline handle it
-            logger.info("QueryRouter | No tool calls requested, falling back to RAG pipeline")
+            logger.error(f"LLM call failed: {e}")
             return None
 
-        # 5. Execute all tool calls
-        tool_results: list[ToolResult] = []
-        messages.append(first_choice.message)  # Add assistant message with tool_calls
+        # 4. Build Response
+        metrics = self._build_metrics(start_time, tool_time_ms, prompt_tok, comp_tok, docs=len(ctx.raw_tool_results))
 
-        for tc in first_choice.message.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
-            except json.JSONDecodeError:
-                args = {}
-
-            tool_call = ToolCall(
-                id=tc.id,
-                name=tc.function.name,
-                arguments=args,
-            )
-
-            result = self.registry.execute_tool(tool_call)
-            tool_results.append(result)
-
-            # Add tool result to messages for the synthesis call
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result.to_context_string(),
-            })
-
-        # 6. Second LLM call — synthesize the tool results into a natural language answer
-        try:
-            synthesis_response = await self.provider.generate_with_tools(messages, tools)
-            answer = synthesis_response.choices[0].message.content or "No response generated."
-        except Exception as e:
-            logger.error(f"QueryRouter | Synthesis LLM call failed: {e}")
-            # Build a basic answer from tool results directly
-            answer = self._fallback_answer(tool_results)
-
-        total_time_ms = (time.time() - start_time) * 1000
-
-        # 7. Build metrics
-        tool_time_ms = sum(r.execution_time_ms for r in tool_results)
-        total_rows = sum(r.rows_returned for r in tool_results)
-        sources_used = list(set(r.source for r in tool_results if r.success))
-        tool_names_used = [r.tool_name for r in tool_results]
-
-        # Calculate tokens from both LLM calls
-        prompt_tokens = getattr(first_response.usage, 'prompt_tokens', 0) or 0
-        completion_tokens = getattr(first_response.usage, 'completion_tokens', 0) or 0
-        try:
-            prompt_tokens += getattr(synthesis_response.usage, 'prompt_tokens', 0) or 0
-            completion_tokens += getattr(synthesis_response.usage, 'completion_tokens', 0) or 0
-        except NameError:
-            pass
-
-        metrics = RetrievalMetrics(
-            documents_used=total_rows,
-            retrieval_time_ms=round(tool_time_ms, 2),
-            prompt_build_time_ms=0,
-            llm_time_ms=round(total_time_ms - tool_time_ms, 2),
-            model=self.settings.model_name,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
-        )
-
-        # Build citations from tool results
         citations = []
-        for tr in tool_results:
-            if tr.success and tr.data:
-                citations.append(Citation(
-                    document_id=f"tool:{tr.tool_name}",
-                    document_type=f"{tr.source}_lookup",
-                    score=1.0,
-                    text_snippet=f"Retrieved via {tr.tool_name} from {tr.source} ({tr.rows_returned} records)",
-                ))
-
-        logger.info(
-            f"QueryRouter | COMPLETE | tools={tool_names_used} | "
-            f"sources={sources_used} | rows={total_rows} | "
-            f"tool_time={tool_time_ms:.1f}ms | total_time={total_time_ms:.1f}ms"
-        )
+        for i, tool_name in enumerate(ctx.tools_executed):
+             citations.append(Citation(
+                 document_id=f"tool:{tool_name}",
+                 document_type="backend_tool",
+                 score=1.0,
+                 text_snippet=f"Retrieved via {tool_name}"
+             ))
 
         return ResponseBuilder.build(
             query=request.query,
             answer=answer,
             citations=citations,
-            sources=[f"tool:{name}" for name in tool_names_used],
+            sources=list(set(ctx.tools_executed)),
             retrieval_metrics=metrics,
         )
 
-    @staticmethod
-    def _fallback_answer(results: list[ToolResult]) -> str:
-        """Build a basic answer from tool results when the synthesis LLM call fails."""
-        parts = []
-        for r in results:
-            if r.success:
-                parts.append(r.to_context_string())
-            else:
-                parts.append(f"Error retrieving data from {r.tool_name}: {r.error}")
-        return "\n\n".join(parts) if parts else "Unable to retrieve the requested information."
+    def _build_metrics(self, start_time: float, tool_time_ms: float, prompt_tok: int, comp_tok: int, docs: int = 0) -> RetrievalMetrics:
+        total_time_ms = (time.time() - start_time) * 1000
+        return RetrievalMetrics(
+            documents_used=docs,
+            retrieval_time_ms=round(tool_time_ms, 2),
+            prompt_build_time_ms=0,
+            llm_time_ms=round(total_time_ms - tool_time_ms, 2),
+            model=self.settings.model_name,
+            prompt_tokens=prompt_tok,
+            completion_tokens=comp_tok,
+            total_tokens=prompt_tok + comp_tok,
+        )
