@@ -41,3 +41,19 @@ def build_payload(doc: AIDocument) -> dict[str, Any]:
         "updated_at": m.updated_at,
         "text_preview": doc.text[:500] if doc.text else "",
     }
+
+
+def get_qdrant_client(config: Any) -> Any:
+    """
+    Initialize a QdrantClient supporting embedded local storage or standalone server.
+    """
+    from qdrant_client import QdrantClient
+    path = getattr(config, "qdrant_path", None)
+    if path:
+        return QdrantClient(path=path)
+    host = getattr(config, "qdrant_host", "localhost")
+    port = getattr(config, "qdrant_port", 6333)
+    try:
+        return QdrantClient(host=host, port=port, timeout=5.0)
+    except Exception:
+        return QdrantClient(path="./qdrant_storage")

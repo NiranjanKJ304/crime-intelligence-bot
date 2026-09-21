@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     """Global application settings sourced from .env."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_batch_size: int = 256
     embedding_device: str = "cpu"
+    qdrant_path: str = "./qdrant_storage"
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_collection: str = "crime_intelligence"

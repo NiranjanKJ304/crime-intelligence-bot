@@ -11,6 +11,7 @@ from qdrant_client import QdrantClient
 
 from app.embeddings.model_manager import ModelManager
 from app.embeddings.config import build_embedding_config
+from app.embeddings.utils import get_qdrant_client
 from app.core.config import Settings
 from app.retrieval.config import RetrievalConfig, build_retrieval_config
 from app.retrieval.schemas import (
@@ -52,11 +53,8 @@ class RetrievalEngine:
         self.cache = RetrievalEngine._cache_manager
         self.analytics = RetrievalEngine._analytics
 
-        # Initialize Qdrant Client
-        self.qdrant_client = QdrantClient(
-            host=self.config.qdrant_host,
-            port=self.config.qdrant_port
-        )
+        # Initialize Qdrant Client (supports embedded local path and host:port)
+        self.qdrant_client = get_qdrant_client(self.config)
         
         # Re-use Phase 3B ModelManager singleton
         emb_config = build_embedding_config(settings)

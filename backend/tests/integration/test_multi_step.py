@@ -1,12 +1,12 @@
 """
 Integration tests for multi-step tool planning.
 
-These tests run against the live Docker services (PostgreSQL, Neo4j, Qdrant)
+These tests run against the live services (PostgreSQL, Neo4j, Qdrant)
 AND the Groq API to verify that the iterative tool-calling loop correctly
 chains multiple tool calls to answer relational questions.
 
 Requirements:
-  - Docker services running (crime_bot_postgres, crime_bot_neo4j, crime_bot_qdrant)
+  - Backend database services running (PostgreSQL, Neo4j, Qdrant)
   - GROQ_API_KEY set in the environment
   - Database populated with synthetic data
 """

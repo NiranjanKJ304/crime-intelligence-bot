@@ -20,6 +20,7 @@ class EmbeddingConfig:
     qdrant_collection: str
     top_k: int
     document_store_path: str
+    qdrant_path: str = "./qdrant_storage"
 
 
 def build_embedding_config(settings: Settings | None = None) -> EmbeddingConfig:
@@ -34,4 +35,5 @@ def build_embedding_config(settings: Settings | None = None) -> EmbeddingConfig:
         qdrant_collection=settings.qdrant_collection,
         top_k=settings.top_k,
         document_store_path=settings.document_store_path,
+        qdrant_path=settings.qdrant_path,
     )

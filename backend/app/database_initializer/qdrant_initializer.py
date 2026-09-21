@@ -13,6 +13,7 @@ from qdrant_client import QdrantClient
 
 from app.core.config import Settings
 from app.embeddings.config import build_embedding_config
+from app.embeddings.utils import get_qdrant_client
 
 logger = logging.getLogger("crime_bot")
 
@@ -23,7 +24,7 @@ class QdrantInitializer:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.config = build_embedding_config(settings)
-        self.client = QdrantClient(host=self.config.qdrant_host, port=self.config.qdrant_port)
+        self.client = get_qdrant_client(self.config)
 
     def is_empty(self) -> bool:
         """Check if Qdrant collection is empty."""

@@ -22,6 +22,7 @@ class RetrievalConfig:
     qdrant_port: int
     qdrant_collection: str
     embedding_model: str
+    qdrant_path: str = "./qdrant_storage"
 
 
 def build_retrieval_config(settings: Settings | None = None) -> RetrievalConfig:
@@ -38,4 +39,5 @@ def build_retrieval_config(settings: Settings | None = None) -> RetrievalConfig:
         qdrant_port=settings.qdrant_port,
         qdrant_collection=settings.qdrant_collection,
         embedding_model=settings.embedding_model,
+        qdrant_path=settings.qdrant_path,
     )

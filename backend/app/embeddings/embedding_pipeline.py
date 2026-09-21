@@ -24,7 +24,7 @@ from app.embeddings.qdrant_search import QdrantSearch
 from app.embeddings.sync_manager import SyncManager
 from app.embeddings.statistics import EmbeddingStatistics
 from app.embeddings.embedding_manager import EmbeddingManager
-from app.embeddings.utils import generate_point_id
+from app.embeddings.utils import generate_point_id, get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,8 @@ class EmbeddingPipeline:
     def __init__(self, config: EmbeddingConfig):
         self.config = config
         
-        # Initialize Qdrant Client
-        self.qdrant_client = QdrantClient(
-            host=config.qdrant_host,
-            port=config.qdrant_port
-        )
+        # Initialize Qdrant Client (supports embedded local path and host:port)
+        self.qdrant_client = get_qdrant_client(config)
         
         # Initialize Document Store
         self.doc_store = DocumentStore(config.document_store_path)

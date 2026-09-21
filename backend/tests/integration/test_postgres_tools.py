@@ -1,7 +1,7 @@
 """
 Integration tests for PostgreSQL tool functions using ColumnMapper.
 
-These tests run against the actual Docker PostgreSQL database to ensure
+These tests run against the PostgreSQL database to ensure
 the dynamic column mappings correctly resolve logical IDs to physical columns.
 """
 

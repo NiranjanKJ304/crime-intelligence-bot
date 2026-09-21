@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Validate and Init Embedding Model
     logger = logging.getLogger("crime_bot")
     try:
-        cache_dir = os.environ.get("HF_HOME", "/app/.cache/huggingface")
+        cache_dir = os.environ.get("HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface"))
         if not os.path.exists(cache_dir):
             try:
                 os.makedirs(cache_dir, exist_ok=True)
