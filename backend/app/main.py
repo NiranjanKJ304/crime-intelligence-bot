@@ -52,11 +52,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logging.getLogger("crime_bot").error(f"Database Initialization failed: {e}", exc_info=True)
 
-    # Initialize ColumnMapper
+    # Initialize ColumnMapper (logical -> physical schema resolution).
+    # Fails fast with a diagnostic if the configured schema has no usable tables.
     try:
         from app.services.tools.mapper import ColumnMapper
         mapper = ColumnMapper.get_instance()
         mapper.initialize()
+        logging.getLogger("crime_bot").info(f"ColumnMapper ready: {mapper.describe()['tables']}")
     except Exception as e:
         logging.getLogger("crime_bot").error(f"ColumnMapper Initialization failed: {e}", exc_info=True)
         raise RuntimeError(f"Startup validation failed: {e}")

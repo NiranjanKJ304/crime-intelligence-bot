@@ -94,3 +94,70 @@ class TestIntentDetector:
     def test_confidence_semantic(self):
         result = IntentDetector.detect("theft patterns")
         assert result.confidence <= 0.6
+
+
+class TestIdentifierKinds:
+    """CaseNo, CrimeNo, CaseMasterID and EmployeeID are distinct identifiers."""
+
+    def test_caseno_compact_spelling(self):
+        result = IntentDetector.detect("Find CaseNo 202300001")
+        assert result.intent == "identifier_lookup"
+        assert result.sub_intent == "case_by_number"
+        assert result.identifiers == {"case_number": 202300001}
+
+    def test_case_id_means_case_master_id(self):
+        result = IntentDetector.detect("case id 1")
+        assert result.sub_intent == "case_by_id"
+        assert result.identifiers == {"case_id": 1}
+
+    def test_case_master_id(self):
+        result = IntentDetector.detect("CaseMasterID 1")
+        assert result.identifiers == {"case_id": 1}
+
+    def test_crime_no_is_crime_number_not_case_number(self):
+        result = IntentDetector.detect("crime no 100170200202300001")
+        assert result.sub_intent == "case_by_crime"
+        assert result.identifiers == {"crime_number": 100170200202300001}
+
+    def test_officer_employee_id_phrasing(self):
+        result = IntentDetector.detect("Find officer EmployeeID 5313")
+        assert result.intent == "identifier_lookup"
+        assert result.sub_intent == "officer"
+        assert result.identifiers == {"officer_id": 5313}
+
+    def test_investigating_officer_for_caseno(self):
+        result = IntentDetector.detect("Who is the investigating officer for CaseNo 202300001?")
+        assert result.intent == "factual_query"
+        assert result.sub_intent == "officer_for_case"
+        assert result.identifiers == {"case_number": 202300001}
+
+    def test_that_case_has_no_identifier(self):
+        result = IntentDetector.detect("Who is the investigating officer for that case?")
+        assert result.intent == "factual_query"
+        assert result.sub_intent == "officer_for_case"
+        assert result.identifiers == {}
+
+    def test_identifiers_are_typed(self):
+        assert isinstance(IntentDetector.detect("Show case 202300001").identifiers["case_number"], int)
+        assert isinstance(IntentDetector.detect("FIR number CR/2023/001").identifiers["crime_number"], str)
+
+
+class TestAccusedByName:
+    @pytest.mark.parametrize("query", ["Fiyaz Saran", "accused Fiyaz Saran", "Find accused named Fiyaz Saran"])
+    def test_name_lookup(self, query):
+        result = IntentDetector.detect(query)
+        assert result.intent == "identifier_lookup"
+        assert result.sub_intent == "accused_by_name"
+        assert result.identifiers == {"accused_name": "Fiyaz Saran"}
+
+    def test_accused_id_still_wins_over_name(self):
+        result = IntentDetector.detect("accused 15")
+        assert result.sub_intent == "accused"
+
+    def test_descriptive_accused_query_is_not_a_name(self):
+        result = IntentDetector.detect("accused persons in Bangalore")
+        assert result.sub_intent != "accused_by_name"
+
+    def test_co_accused_query_is_graph(self):
+        result = IntentDetector.detect("Find co-accused in these cases")
+        assert result.intent in ("graph_query", "reasoning")

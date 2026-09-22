@@ -1,47 +1,37 @@
 """
-Chat message rendering components.
+Chat message containers.
+
+Uses Streamlit's native chat containers so Markdown is rendered (not shown
+raw) and structured components can be placed inside a message bubble.
+Styling lives in the .ci-* / stChatMessage rules in app.py.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from typing import Iterator
+
 import streamlit as st
+
+USER_AVATAR = "👤"
+ASSISTANT_AVATAR = "🔍"
 
 
 def render_user_message(text: str) -> None:
-    """Render a user message bubble."""
-    st.markdown(
-        f"""
-        <div style="display:flex; justify-content:flex-end; margin-bottom:0.8rem;">
-            <div style="background:linear-gradient(135deg,#1B3A5C,#2A5F9E);
-                        color:white; padding:0.75rem 1rem; border-radius:16px 16px 4px 16px;
-                        max-width:75%; font-size:0.92rem; line-height:1.55;
-                        box-shadow:0 2px 8px rgba(27,58,92,0.15);">
-                {text}
-            </div>
-            <div style="margin-left:0.5rem; font-size:1.5rem; line-height:1;">👤</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.chat_message("user", avatar=USER_AVATAR):
+        st.markdown(text)
+
+
+@contextmanager
+def assistant_message() -> Iterator[None]:
+    """Container for an assistant turn; render structured content inside it."""
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        yield
 
 
 def render_assistant_message(text: str) -> None:
-    """Render an assistant message bubble."""
-    st.markdown(
-        f"""
-        <div style="display:flex; justify-content:flex-start; margin-bottom:0.8rem;">
-            <div style="margin-right:0.5rem; font-size:1.5rem; line-height:1;">🔍</div>
-            <div style="background:#F0F4F8; color:#1A1A1A;
-                        padding:0.75rem 1rem; border-radius:16px 16px 16px 4px;
-                        max-width:75%; font-size:0.92rem; line-height:1.55;
-                        border:1px solid #E0E0E0;
-                        box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-                {text}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with assistant_message():
+        st.markdown(text)
 
 
 def render_error_message(text: str) -> None:

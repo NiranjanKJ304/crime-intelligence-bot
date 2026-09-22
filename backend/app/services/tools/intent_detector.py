@@ -1,15 +1,18 @@
 """
 Intent Detector.
 
-Lightweight regex + keyword classifier that runs BEFORE the LLM call.
+Lightweight regex + keyword classifier that runs BEFORE any LLM call.
 Classifies queries into 5 main categories to determine the execution path:
 identifier_lookup, factual_query, semantic_search, graph_query, reasoning.
+
+Identifier kinds are kept distinct — CaseNo, CrimeNo (FIR) and CaseMasterID
+are different columns and are never interchanged.
 """
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -25,28 +28,62 @@ class DetectedIntent:
     raw_query: str = ""
 
 
+_ID_KEYWORD = r"(?:number|num|no\.?|id|#)?"
+_LEAD_IN = (
+    r"(?:(?:show|find|get|lookup|search|display|fetch)\s+(?:me\s+)?(?:the\s+|all\s+)?"
+    r"|who\s+is\s+(?:the\s+)?|tell\s+me\s+about\s+(?:the\s+)?|details\s+(?:of|for)\s+(?:the\s+)?"
+    r"|info(?:rmation)?\s+(?:on|about)\s+(?:the\s+)?)?"
+)
+
+
 class IntentDetector:
     """Classifies user queries into intent categories using regex patterns."""
 
-    # Patterns ordered by specificity (most specific first)
-    
-    # 1. Identifier Lookups (Just looking up the entity directly without asking for related entities)
-    IDENTIFIER_PATTERNS = [
-        (r'^(?:show |find )?\bcase\s*(?:number|no|#|id)?\s*[:\s]?\s*(\d+)$', "case_by_number", "case_number"),
-        (r'^(?:show |find )?\b(?:crime|fir)\s*(?:number|no|#)?\s*[:\s]?\s*([A-Za-z0-9/\-]+\d+)$', "case_by_crime", "crime_number"),
-        (r'^(?:show |find )?\bofficer\s*(?:id|number|no|#)?\s*[:\s]?\s*(\d+)$', "officer", "officer_id"),
-        (r'^(?:show |find )?\bemployee\s*(?:id|number|no|#)?\s*[:\s]?\s*(\d+)$', "officer", "officer_id"),
-        (r'^(?:show |find )?\bvictim\s*(?:id|number|no|#)?\s*[:\s]?\s*(\d+)$', "victim", "victim_id"),
-        (r'^(?:show |find )?\baccused\s*(?:id|number|no|#)?\s*[:\s]?\s*(\d+)$', "accused", "accused_id"),
-    ]
+    # Case reference anywhere in the query. `kind` decides which physical
+    # identifier is meant; `kw` distinguishes "case id" (CaseMasterID)
+    # from "case number" (CaseNo).
+    CASE_REF = re.compile(
+        r"\b(?P<kind>case\s*master\s*id|case|fir|cr|crime)\s*(?P<kw>" + _ID_KEYWORD + r")\s*[:#]?\s*"
+        r"(?P<value>\d+(?:/[A-Za-z0-9]+)*|[A-Za-z]{1,4}/[A-Za-z0-9/\-]*\d+)\b",
+        re.IGNORECASE,
+    )
 
-    # 2. Reasoning Keywords
+    # Whole-query entity lookups by numeric ID.
+    OFFICER_REF = re.compile(
+        r"^" + _LEAD_IN + r"(?:investigating\s+officer|officer|employee|police\s*person|io)\s*"
+        r"(?:employee\s*|police\s*person\s*)?" + _ID_KEYWORD + r"\s*[:#]?\s*(?P<value>\d+)\s*\??$",
+        re.IGNORECASE,
+    )
+    VICTIM_REF = re.compile(
+        r"^" + _LEAD_IN + r"victim\s*(?:master\s*)?" + _ID_KEYWORD + r"\s*[:#]?\s*(?P<value>\d+)\s*\??$",
+        re.IGNORECASE,
+    )
+    ACCUSED_REF = re.compile(
+        r"^" + _LEAD_IN + r"(?:accused|suspect)\s*(?:master\s*)?" + _ID_KEYWORD + r"\s*[:#]?\s*(?P<value>\d+)\s*\??$",
+        re.IGNORECASE,
+    )
+
+    # "find accused named Fiyaz Saran", "accused Fiyaz Saran"
+    ACCUSED_NAME_REF = re.compile(
+        r"^" + _LEAD_IN + r"(?:accused|suspect)s?\s+"
+        r"(?:named?\s+|called\s+|records?\s+(?:for|of)\s+|with\s+(?:the\s+)?name\s+)?"
+        r"(?P<name>[A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3})\s*\??$",
+        re.IGNORECASE,
+    )
+    # Bare proper name: "Fiyaz Saran"
+    BARE_NAME_REF = re.compile(r"^(?P<name>[A-Z][a-z.'\-]+(?:\s+[A-Z][a-z.'\-]+){1,3})\s*\??$")
+
+    NAME_STOPWORDS = {
+        "in", "of", "for", "with", "from", "at", "by", "and", "or", "to", "on", "the", "a", "an",
+        "case", "cases", "who", "was", "were", "is", "are", "list", "all", "persons", "person",
+        "people", "records", "record", "details", "involved", "arrested", "network", "related",
+    }
+
     REASONING_KEYWORDS = [
         "summarize", "summary", "explain", "compare", "report", "briefing",
-        "generate", "analysis", "synthesize", "difference", "similarities"
+        "generate", "analysis", "synthesize", "difference", "similarities",
     ]
 
-    # 3. Graph Keywords
     GRAPH_KEYWORDS = [
         "related", "connected", "linked", "network", "co-accused", "coaccused",
         "gang", "together", "arrested by", "who arrested", "investigated by",
@@ -54,25 +91,50 @@ class IntentDetector:
         "timeline", "chronolog",
     ]
 
-    @staticmethod
-    def detect(query: str) -> DetectedIntent:
-        """Classify a user query into an intent category."""
-        q_lower = query.lower().strip()
-        
-        is_reasoning = any(kw in q_lower for kw in IntentDetector.REASONING_KEYWORDS)
-        
-        # Extract case number anywhere in the query
-        case_number = None
-        match = re.search(r'\b(?:case(?: number| no|id)?|fir|cr|crime(?: number| no)?)\s*(?:#|:)?\s*([A-Za-z0-9/\-]*\d+)', q_lower)
-        if match:
-            case_number = match.group(1)
-            
-        has_case_ref = bool(case_number) or any(x in q_lower for x in ["that case", "this case", "the case"])
+    # ── Helpers ───────────────────────────────────────────────────────
 
-        # 1. Identify sub-intent
+    @staticmethod
+    def _typed(value: str) -> int | str:
+        return int(value) if value.isdigit() else value
+
+    @classmethod
+    def extract_case_reference(cls, query: str) -> tuple[str, int | str] | None:
+        """Return (identifier_key, value) for the first case reference in the query."""
+        match = cls.CASE_REF.search(query)
+        if not match:
+            return None
+        kind = re.sub(r"\s+", "", match.group("kind").lower())
+        kw = (match.group("kw") or "").lower().rstrip(".")
+        value = cls._typed(match.group("value"))
+
+        if kind == "casemasterid" or (kind == "case" and kw == "id"):
+            return "case_id", value
+        if kind == "case":
+            return "case_number", value
+        return "crime_number", value
+
+    @classmethod
+    def _looks_like_name(cls, name: str) -> bool:
+        words = name.lower().split()
+        return bool(words) and not any(w in cls.NAME_STOPWORDS for w in words)
+
+    # ── Detection ─────────────────────────────────────────────────────
+
+    @classmethod
+    def detect(cls, query: str) -> DetectedIntent:
+        """Classify a user query into an intent category."""
+        raw = query.strip()
+        q_lower = raw.lower()
+
+        is_reasoning = any(kw in q_lower for kw in cls.REASONING_KEYWORDS)
+        has_graph_kw = any(kw in q_lower for kw in cls.GRAPH_KEYWORDS)
+
+        case_ref = cls.extract_case_reference(raw)
+        has_case_ref = case_ref is not None or any(x in q_lower for x in ("that case", "this case", "the case"))
+
+        # 1. Case-scoped sub-intents (factual or reasoning about one case)
         sub_intent = None
         if has_case_ref:
-            # Check highly specific or multi-word intents first
             if any(kw in q_lower for kw in ["network", "connections", "criminal network"]):
                 sub_intent = "case_network"
             elif any(kw in q_lower for kw in ["co-accused", "co accused", "associates", "accomplices"]):
@@ -81,7 +143,6 @@ class IntentDetector:
                 sub_intent = "case_timeline"
             elif any(kw in q_lower for kw in ["summarize", "summary", "brief"]):
                 sub_intent = "summarize_case"
-            # Then check simpler factual keywords
             elif "officer" in q_lower or "investigat" in q_lower:
                 sub_intent = "officer_for_case"
             elif "victim" in q_lower:
@@ -94,85 +155,58 @@ class IntentDetector:
                 sub_intent = "status_for_case"
 
         if sub_intent:
-            identifiers = {}
-            if case_number:
-                try:
-                    identifiers["case_number"] = int(case_number)
-                except ValueError:
-                    identifiers["crime_number"] = case_number
-                
-            # These specific sub-intents require reasoning/LLM
+            identifiers: dict[str, str | int] = {}
+            if case_ref:
+                identifiers[case_ref[0]] = case_ref[1]
             if sub_intent in ("case_network", "co_accused", "case_timeline", "summarize_case"):
                 intent = "reasoning"
             else:
                 intent = "reasoning" if is_reasoning else "factual_query"
-                
-            logger.info(f"Intent detected: {intent} | sub={sub_intent} | identifiers={identifiers}")
-            return DetectedIntent(
-                intent=intent,
-                sub_intent=sub_intent,
-                identifiers=identifiers,
-                confidence=0.95,
-                raw_query=query,
-            )
+            logger.info("Intent detected: %s | sub=%s | identifiers=%s", intent, sub_intent, identifiers)
+            return DetectedIntent(intent=intent, sub_intent=sub_intent, identifiers=identifiers,
+                                  confidence=0.95, raw_query=raw)
 
-        # 2. Check Identifier Lookups (Strict match for single entity lookups)
-        for pattern, loop_sub_intent, id_key in IntentDetector.IDENTIFIER_PATTERNS:
-            match = re.search(pattern, q_lower)
+        # 2. Whole-query entity lookups by ID
+        for pattern, loop_sub_intent, id_key in (
+            (cls.OFFICER_REF, "officer", "officer_id"),
+            (cls.VICTIM_REF, "victim", "victim_id"),
+            (cls.ACCUSED_REF, "accused", "accused_id"),
+        ):
+            match = pattern.match(raw)
             if match:
-                identifier = match.group(1)
-                identifiers = {}
-                if identifier:
-                    try:
-                        identifier = int(identifier)
-                    except (ValueError, TypeError):
-                        pass
-                    identifiers[id_key] = identifier
-
+                identifiers = {id_key: int(match.group("value"))}
                 intent = "reasoning" if is_reasoning else "identifier_lookup"
-                logger.info(f"Intent detected: {intent} | sub={loop_sub_intent} | identifiers={identifiers}")
-                return DetectedIntent(
-                    intent=intent,
-                    sub_intent=loop_sub_intent,
-                    identifiers=identifiers,
-                    confidence=0.9,
-                    raw_query=query,
-                )
+                logger.info("Intent detected: %s | sub=%s | identifiers=%s", intent, loop_sub_intent, identifiers)
+                return DetectedIntent(intent=intent, sub_intent=loop_sub_intent, identifiers=identifiers,
+                                      confidence=0.9, raw_query=raw)
 
-        # Catch basic "Tell me about Case X" (where it has a case number but no specific question)
-        if case_number and not sub_intent:
-            identifiers = {}
-            try:
-                identifiers["case_number"] = int(case_number)
-            except ValueError:
-                identifiers["crime_number"] = case_number
-                
+        # 3. Plain case reference ("Show case 202300001", "FIR number 12345")
+        if case_ref:
+            key, value = case_ref
+            loop_sub_intent = {"case_id": "case_by_id", "case_number": "case_by_number", "crime_number": "case_by_crime"}[key]
             intent = "reasoning" if is_reasoning else "identifier_lookup"
-            logger.info(f"Intent detected: {intent} | sub=case_by_number | identifiers={identifiers}")
-            return DetectedIntent(
-                intent=intent,
-                sub_intent="case_by_number",
-                identifiers=identifiers,
-                confidence=0.8,
-                raw_query=query,
-            )
+            logger.info("Intent detected: %s | sub=%s | identifiers=%s", intent, loop_sub_intent, {key: value})
+            return DetectedIntent(intent=intent, sub_intent=loop_sub_intent, identifiers={key: value},
+                                  confidence=0.9, raw_query=raw)
 
-        # 3. Check for relationship keywords
-        for kw in IntentDetector.GRAPH_KEYWORDS:
-            if kw in q_lower:
-                logger.info(f"Intent detected: graph_query (keyword: {kw})")
-                return DetectedIntent(
-                    intent="reasoning" if is_reasoning else "graph_query",
-                    sub_intent="relationship",
-                    confidence=0.7,
-                    raw_query=query,
-                )
+        # 4. Relationship keywords → graph
+        if has_graph_kw:
+            logger.info("Intent detected: graph_query")
+            return DetectedIntent(intent="reasoning" if is_reasoning else "graph_query",
+                                  sub_intent="relationship", confidence=0.7, raw_query=raw)
 
-        # 4. Default: semantic search (natural language query)
+        # 5. Accused lookup by name (all matching records are returned — a
+        #    name is never treated as a unique identity)
+        name_match = cls.ACCUSED_NAME_REF.match(raw) or cls.BARE_NAME_REF.match(raw)
+        if name_match and cls._looks_like_name(name_match.group("name")):
+            name = " ".join(name_match.group("name").split())
+            confidence = 0.85 if name_match.re is cls.ACCUSED_NAME_REF else 0.6
+            logger.info("Intent detected: identifier_lookup | sub=accused_by_name | name=%s", name)
+            return DetectedIntent(intent="reasoning" if is_reasoning else "identifier_lookup",
+                                  sub_intent="accused_by_name", identifiers={"accused_name": name},
+                                  confidence=confidence, raw_query=raw)
+
+        # 6. Default: semantic search
         logger.info("Intent detected: semantic_search (default)")
-        return DetectedIntent(
-            intent="reasoning" if is_reasoning else "semantic_search",
-            sub_intent="similar_cases",
-            confidence=0.5,
-            raw_query=query,
-        )
+        return DetectedIntent(intent="reasoning" if is_reasoning else "semantic_search",
+                              sub_intent="similar_cases", confidence=0.5, raw_query=raw)

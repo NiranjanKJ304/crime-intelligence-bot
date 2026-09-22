@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # ── ETL Schema Configuration ──────────────────────────────────────
     source_schema: str = "public"
     clean_schema: str = "clean"
+    # When True, the tools layer refuses to start unless the ETL-produced
+    # clean schema exists. When False it prefers clean_* tables if present and
+    # otherwise falls back to the source schema tables.
+    require_clean_schema: bool = False
 
     # ── Directories ───────────────────────────────────────────────────
     log_dir: str = "app/etl/logs"

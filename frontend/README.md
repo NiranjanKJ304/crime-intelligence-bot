@@ -10,7 +10,7 @@ cd frontend
 pip install -r requirements.txt
 
 # 2. Make sure the backend is running
-#    (Docker container on localhost:8000)
+#    (FastAPI backend on http://127.0.0.1:8000)
 
 # 3. Launch the app
 streamlit run app.py

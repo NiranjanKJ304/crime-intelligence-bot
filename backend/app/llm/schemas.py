@@ -33,9 +33,23 @@ class RetrievalMetrics(BaseModel):
     total_tokens: int = 0
 
 class ChatResponse(BaseModel):
-    """Structured response for a chat query."""
+    """
+    Structured response for a chat query.
+
+    `answer` is always a Markdown rendering of the result (fallback for any
+    client). `response_type` + `data` carry the same result as structured
+    data so rich clients can render cards/tables instead of text:
+      answer          -> data is None
+      case_details    -> {"case": {...}, "chargesheet": {...} | None}
+      officer_details -> {"officer": {...}, "case": {...} | None}
+      person_details  -> {"role": "victim"|"accused", "persons": [...], "case": {...} | None}
+      search_results  -> {"entity": str, "query": str, "total": int, "results": [...], "note": str | None}
+      statistics      -> {"title": str, "metrics": {label: value}}
+    """
     query: str
     answer: str
+    response_type: str = "answer"
+    data: dict[str, Any] | None = None
     citations: list[Citation] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
     confidence: float

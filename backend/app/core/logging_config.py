@@ -48,11 +48,17 @@ def setup_logging() -> None:
     settings = get_settings()
     log_path = settings.log_path
 
-    root_logger = logging.getLogger("crime_bot")
-    root_logger.setLevel(logging.DEBUG if settings.debug else logging.INFO)
+    level = logging.DEBUG if settings.debug else logging.INFO
+
+    # "crime_bot" is used by the ETL/init code; "app" covers every module
+    # logger created via logging.getLogger(__name__) under the app package.
+    # Without the latter, mapper/planner/router logs were silently dropped.
+    target_loggers = [logging.getLogger("crime_bot"), logging.getLogger("app")]
+    for target in target_loggers:
+        target.setLevel(level)
 
     # Prevent duplicate handlers on repeated calls
-    if root_logger.handlers:
+    if any(target.handlers for target in target_loggers):
         return
 
     formatter = JSONFormatter()
@@ -69,11 +75,12 @@ def setup_logging() -> None:
 
     # ── Console handler ────────────────────────────────────────────
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
 
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
+    for target in target_loggers:
+        target.addHandler(file_handler)
+        target.addHandler(console_handler)
 
 
 def get_stage_logger(stage: str) -> logging.Logger:

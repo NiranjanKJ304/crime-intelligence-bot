@@ -53,6 +53,8 @@ class RetrievalMetrics:
 class ChatResult:
     query: str = ""
     answer: str = ""
+    response_type: str = "answer"
+    data: dict[str, Any] | None = None
     citations: list[Citation] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
     confidence: float = 0.0
@@ -60,17 +62,30 @@ class ChatResult:
     error: str | None = None
 
 
-@dataclass
-class StreamResult:
-    """Accumulated result while streaming tokens."""
-    tokens: list[str] = field(default_factory=list)
-    citations: list[Citation] = field(default_factory=list)
-    sources: list[str] = field(default_factory=list)
-    error: str | None = None
+def parse_citations(raw: list[dict] | None) -> list[Citation]:
+    return [
+        Citation(
+            document_id=c.get("document_id", ""),
+            document_type=c.get("document_type", ""),
+            score=c.get("score", 0.0),
+            text_snippet=c.get("text_snippet"),
+        )
+        for c in (raw or [])
+    ]
 
-    @property
-    def answer(self) -> str:
-        return "".join(self.tokens)
+
+def parse_metrics(raw: dict | None) -> RetrievalMetrics:
+    ret = raw or {}
+    return RetrievalMetrics(
+        documents_used=ret.get("documents_used", 0),
+        retrieval_time_ms=ret.get("retrieval_time_ms", 0),
+        prompt_build_time_ms=ret.get("prompt_build_time_ms", 0),
+        llm_time_ms=ret.get("llm_time_ms", 0),
+        model=ret.get("model", ""),
+        prompt_tokens=ret.get("prompt_tokens", 0),
+        completion_tokens=ret.get("completion_tokens", 0),
+        total_tokens=ret.get("total_tokens", 0),
+    )
 
 
 @dataclass
@@ -114,35 +129,15 @@ class BackendClient:
         except Exception as exc:
             return ChatResult(query=query, error=str(exc))
 
-        citations = [
-            Citation(
-                document_id=c.get("document_id", ""),
-                document_type=c.get("document_type", ""),
-                score=c.get("score", 0.0),
-                text_snippet=c.get("text_snippet"),
-            )
-            for c in data.get("citations", [])
-        ]
-
-        ret = data.get("retrieval", {})
-        metrics = RetrievalMetrics(
-            documents_used=ret.get("documents_used", 0),
-            retrieval_time_ms=ret.get("retrieval_time_ms", 0),
-            prompt_build_time_ms=ret.get("prompt_build_time_ms", 0),
-            llm_time_ms=ret.get("llm_time_ms", 0),
-            model=ret.get("model", ""),
-            prompt_tokens=ret.get("prompt_tokens", 0),
-            completion_tokens=ret.get("completion_tokens", 0),
-            total_tokens=ret.get("total_tokens", 0),
-        )
-
         return ChatResult(
             query=data.get("query", query),
             answer=data.get("answer", ""),
-            citations=citations,
+            response_type=data.get("response_type", "answer"),
+            data=data.get("data"),
+            citations=parse_citations(data.get("citations")),
             sources=data.get("sources", []),
             confidence=data.get("confidence", 0.0),
-            retrieval=metrics,
+            retrieval=parse_metrics(data.get("retrieval")),
         )
 
     # ── Chat (streaming) ──────────────────────────────────────────
@@ -151,7 +146,8 @@ class BackendClient:
 
         Each yielded dict has:
             {"event": "token", "data": "..."}
-            {"event": "complete", "citations": [...], "sources": [...]}
+            {"event": "complete", "response_type": "...", "data": {...}|None,
+             "citations": [...], "sources": [...], "confidence": float, "retrieval": {...}}
             {"event": "done"}
             {"event": "error", "data": "..."}
         """

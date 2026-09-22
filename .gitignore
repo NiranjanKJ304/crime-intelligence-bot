@@ -1,9 +1,27 @@
-# ── Environment & Secrets ────────────────────────────────────────────
+# ==============================================================================
+# Karnataka Police Crime Intelligence Platform — .gitignore
+# ==============================================================================
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
 .env
 .env.*
 !.env.example
+!.env.docker.example
+*.pem
+*.key
+*.cert
+secrets.toml
+.streamlit/secrets.toml
 
-# ── Python ────────────────────────────────────────────────────────────
+# ── Virtual Environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ── Python Bytecode & Packaging ───────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,45 +31,100 @@ __pycache__/
 dist/
 build/
 .eggs/
-.mypy_cache/
+*.manifest
+*.spec
+
+# ── Testing, Coverage & Linters ───────────────────────────────────────────────
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+nosetests.xml
+*.cover
+*.py,cover
+.tox/
+test_reports/
 
-# ── Virtual Environments ──────────────────────────────────────────────
-venv/
-.venv/
-env/
-ENV/
+# ── IDEs & Code Editors ───────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
 
-# ── Model / HuggingFace Cache ─────────────────────────────────────────
+# ── Vector DB & Local Storage (Qdrant) ────────────────────────────────────────
+qdrant_storage/
+**/qdrant_storage/
+qdrant_storage.zip
+qdrant_storage.tar.gz
+*.snapshot
+snapshots/
+
+# ── Raw Datasets & Local Data Dumps ───────────────────────────────────────────
+datafiles/
+data/
+datasets/
+*.xlsx
+*.xls
+
+# ── Large Generated Document Stores & ETL Artifacts ───────────────────────────
+backend/app/document_generation/store/
+app/document_generation/store/
+backend/app/etl/logs/
+backend/app/etl/reports/
+app/etl/logs/
+app/etl/reports/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── ML Models & HuggingFace Cache ─────────────────────────────────────────────
 .cache/
 *.cache
+huggingface/
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
 
-# ── Node / Frontend tooling ───────────────────────────────────────────
+# ── Streamlit & Frontend Tooling ──────────────────────────────────────────────
+.streamlit/*.local.toml
 node_modules/
 .next/
 .nuxt/
-dist/
 
-# ── Jupyter ───────────────────────────────────────────────────────────
+# ── Databases & SQL Dumps ─────────────────────────────────────────────────────
+*.sqlite3
+*.sqlite
+*.db
+*.dump
+*.sql.bak
+
+# ── Jupyter Notebooks ─────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 
-# ── OS ────────────────────────────────────────────────────────────────
+# ── Operating System Artifacts ────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
 
-# ── Docker ───────────────────────────────────────────────────────────
-docker-compose.override.yml.bak
-
-# ── Qdrant local storage ──────────────────────────────────────────────
-qdrant_storage/
-qdrant_storage.zip
-qdrant_storage.tar.gz
-
-# ── Large generated document stores (not source code) ─────────────────
-backend/app/document_generation/store/
-
-# ── Logs ──────────────────────────────────────────────────────────────
-*.log
-logs/
+# ── Temporary & Backup Files ──────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.bak

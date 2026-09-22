@@ -43,14 +43,17 @@ def _render_single_card(cit: Citation) -> None:
 
     # Badge colour by document type
     badge_colours = {
+        "postgresql": "#1B3A5C",
+        "backend_tool": "#6C3483",
         "case_summary": "#2A5F9E",
-        "crime_pattern": "#6C3483",
-        "suspect_profile": "#C0392B",
-        "officer_record": "#27AE60",
-        "court_record": "#D4AC0D",
-        "station_report": "#2980B9",
+        "accused_profile": "#C0392B",
+        "victim_profile": "#D35400",
+        "officer_profile": "#27AE60",
+        "court_summary": "#D4AC0D",
+        "district_summary": "#2980B9",
     }
     badge_bg = badge_colours.get(cit.document_type, "#6C757D")
+    score_label = "Match" if cit.document_type in ("postgresql", "backend_tool") else "Similarity"
 
     st.markdown(
         f"""
@@ -74,7 +77,7 @@ def _render_single_card(cit: Citation) -> None:
                 {snippet}
             </p>
             <p style="margin:0; font-size:0.72rem; color:#2A5F9E; font-weight:600;">
-                Similarity: {score_pct}
+                {score_label}: {score_pct}
             </p>
         </div>
         """,

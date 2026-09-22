@@ -109,17 +109,17 @@ class PostgresInitializer:
         if self.is_clean_empty():
             # 4. Trigger ETL Pipeline to populate `clean` schema
             logger.info("[INIT] Triggering ETL Pipeline to populate clean schema...")
-        try:
-            etl_config = build_etl_config(self.settings)
-            pipeline = ETLPipeline(self.engine, etl_config)
-            result = pipeline.run()
-            if result.errors:
-                logger.warning(f"[INIT] ETL Pipeline finished with {len(result.errors)} errors.")
-            else:
-                logger.info("[INIT] ETL Pipeline completed successfully.")
-        except Exception as e:
-            logger.error(f"[INIT] ETL Pipeline failed during initialization: {e}")
-            return False
+            try:
+                etl_config = build_etl_config(self.settings)
+                pipeline = ETLPipeline(self.engine, etl_config)
+                result = pipeline.run()
+                if result.errors:
+                    logger.warning(f"[INIT] ETL Pipeline finished with {len(result.errors)} errors.")
+                else:
+                    logger.info("[INIT] ETL Pipeline completed successfully.")
+            except Exception as e:
+                logger.error(f"[INIT] ETL Pipeline failed during initialization: {e}")
+                return False
 
         logger.info("[INIT] PostgreSQL Ready")
         return True
