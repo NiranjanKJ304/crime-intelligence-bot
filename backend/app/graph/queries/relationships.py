@@ -135,29 +135,29 @@ MERGE (arr)-[:PRODUCED_IN]->(court)
 
 RELATIONSHIP_QUERIES = {
     # District/Unit/Court
-    "clean_Unit:HAS_UNIT": MERGE_UNIT_DISTRICT,
-    "clean_Court:HAS_COURT": MERGE_COURT_DISTRICT,
-    "clean_Employee:HAS_EMPLOYEE": MERGE_EMPLOYEE_UNIT,
-    "clean_Employee:WORKS_IN": MERGE_EMPLOYEE_DISTRICT,
+    "Unit:HAS_UNIT": MERGE_UNIT_DISTRICT,
+    "Court:HAS_COURT": MERGE_COURT_DISTRICT,
+    "Employee:HAS_EMPLOYEE": MERGE_EMPLOYEE_UNIT,
+    "Employee:WORKS_IN": MERGE_EMPLOYEE_DISTRICT,
     
     # CaseMaster
-    "clean_CaseMaster:REGISTERED_AT": MERGE_CASE_UNIT,
-    "clean_CaseMaster:HEARD_IN": MERGE_CASE_COURT,
-    "clean_CaseMaster:INVESTIGATES": MERGE_CASE_EMPLOYEE_IO,
+    "CaseMaster:REGISTERED_AT": MERGE_CASE_UNIT,
+    "CaseMaster:HEARD_IN": MERGE_CASE_COURT,
+    "CaseMaster:INVESTIGATES": MERGE_CASE_EMPLOYEE_IO,
     
     # Entity-to-Case
-    "clean_Accused:HAS_ACCUSED": MERGE_CASE_ACCUSED,
-    "clean_Victim:HAS_VICTIM": MERGE_CASE_VICTIM,
-    "clean_ComplainantDetails:HAS_COMPLAINANT": MERGE_CASE_COMPLAINANT,
-    "clean_ActSectionAssociation:HAS_SECTION": MERGE_CASE_ACTSECTION,
+    "Accused:HAS_ACCUSED": MERGE_CASE_ACCUSED,
+    "Victim:HAS_VICTIM": MERGE_CASE_VICTIM,
+    "ComplainantDetails:HAS_COMPLAINANT": MERGE_CASE_COMPLAINANT,
+    "ActSectionAssociation:HAS_SECTION": MERGE_CASE_ACTSECTION,
     
     # Chargesheet
-    "clean_ChargesheetDetails:HAS_CHARGESHEET": MERGE_CASE_CHARGESHEET,
-    "clean_ChargesheetDetails:FILES_CHARGESHEET": MERGE_CHARGESHEET_EMPLOYEE,
+    "ChargesheetDetails:HAS_CHARGESHEET": MERGE_CASE_CHARGESHEET,
+    "ChargesheetDetails:FILES_CHARGESHEET": MERGE_CHARGESHEET_EMPLOYEE,
     
     # Arrest
-    "clean_ArrestSurrender:HAS_ARREST": MERGE_CASE_ARREST,
-    "clean_ArrestSurrender:ARRESTED_PERSON": MERGE_ARREST_ACCUSED,
-    "clean_ArrestSurrender:MADE_ARREST": MERGE_ARREST_EMPLOYEE,
-    "clean_ArrestSurrender:PRODUCED_IN": MERGE_ARREST_COURT,
+    "ArrestSurrender:HAS_ARREST": MERGE_CASE_ARREST,
+    "ArrestSurrender:ARRESTED_PERSON": MERGE_ARREST_ACCUSED,
+    "ArrestSurrender:MADE_ARREST": MERGE_ARREST_EMPLOYEE,
+    "ArrestSurrender:PRODUCED_IN": MERGE_ARREST_COURT,
 }

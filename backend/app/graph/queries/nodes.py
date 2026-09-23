@@ -75,17 +75,18 @@ MERGE (n:Arrest {ArrestSurrenderID: row.ArrestSurrenderID})
 SET n += row
 """
 
-# Mapping dictionary for easy access in loader
+# Keyed by LOGICAL source table. The builder resolves each key to the physical
+# schema.table (clean.clean_<T> when the ETL produced it, else <source>.<T>).
 NODE_QUERIES = {
-    "clean_District": MERGE_DISTRICT_NODES,
-    "clean_Unit": MERGE_UNIT_NODES,
-    "clean_Court": MERGE_COURT_NODES,
-    "clean_Employee": MERGE_EMPLOYEE_NODES,
-    "clean_CaseMaster": MERGE_CASE_NODES,
-    "clean_ComplainantDetails": MERGE_COMPLAINANT_NODES,
-    "clean_Victim": MERGE_VICTIM_NODES,
-    "clean_Accused": MERGE_ACCUSED_NODES,
-    "clean_ActSectionAssociation": MERGE_ACTSECTION_NODES,
-    "clean_ChargesheetDetails": MERGE_CHARGESHEET_NODES,
-    "clean_ArrestSurrender": MERGE_ARREST_NODES,
+    "District": MERGE_DISTRICT_NODES,
+    "Unit": MERGE_UNIT_NODES,
+    "Court": MERGE_COURT_NODES,
+    "Employee": MERGE_EMPLOYEE_NODES,
+    "CaseMaster": MERGE_CASE_NODES,
+    "ComplainantDetails": MERGE_COMPLAINANT_NODES,
+    "Victim": MERGE_VICTIM_NODES,
+    "Accused": MERGE_ACCUSED_NODES,
+    "ActSectionAssociation": MERGE_ACTSECTION_NODES,
+    "ChargesheetDetails": MERGE_CHARGESHEET_NODES,
+    "ArrestSurrender": MERGE_ARREST_NODES,
 }

@@ -2,7 +2,22 @@
 
 This document provides a complete technical reference for the Karnataka Police Crime Intelligence Platform, covering all phases, architecture, processing flows, and module details.
 
-Last updated: **2026-09-16**
+Last updated: **2026-09-22**
+
+## 📝 Recent Changes (2026-09-22)
+
+| Area | Change |
+|------|--------|
+| Schema mapping | `ColumnMapper` rewritten: logical tables/columns (`CaseMaster.case_number`) resolve at startup from `information_schema` to `clean.clean_<T>` when the ETL produced it, else `<SOURCE_SCHEMA>.<T>`. New `REQUIRE_CLEAN_SCHEMA` flag. Column types are recorded and identifiers are validated/coerced before SQL. Missing mappings raise `MappingError` with full diagnostics (configured schemas, expected vs available tables/columns) instead of a bare `ValueError`. |
+| PostgreSQL tools | Rewritten on logical names; explicit column lists (no `SELECT *` on the chat path); `CaseNo`, `CrimeNo`, `CaseMasterID`, `EmployeeID` kept distinct; `find_accused_by_name` returns every matching record. Fixed `get_case_lookup()` referencing `rows` before assignment. |
+| Intent detection | Handles `CaseNo 202300001`, `EmployeeID 5313`, `case id` (= CaseMasterID) vs `case number`, `crime no` (= CrimeNo), officer-for-case chains, accused lookup by name. |
+| Error handling | Tool/DB failures surface as `ToolError` → HTTP 500 with a user-safe message (sync) or an SSE `{"event":"error"}` + `[DONE]` (stream). No tracebacks, no dropped connections. |
+| Structured responses | `ChatResponse.response_type` + `data` (case_details, officer_details, person_details, search_results, statistics, answer) alongside the Markdown `answer`; SSE `complete` event carries the same. |
+| Frontend | `components/response_renderer.py` renders cards/tables per `response_type`; native chat containers so Markdown renders; typed payload schemas in `api/schemas.py`. |
+| Graph build | `GraphBuilder` resolves logical source tables through `ColumnMapper`; returns `status`/`source_tables`/`tables_failed`; HTTP 500 with exact schema.table errors when nothing can be loaded. Query dicts keyed by logical table names. |
+| ETL | `POST /etl/run` refreshes the `ColumnMapper` afterwards. Fixed indentation bug in `PostgresInitializer` that ran the ETL unconditionally. |
+| Logging | `app.*` module loggers now attached to the JSON handlers (they were silently dropped). `DEBUG=true` emits `[TRACE]` records per pipeline stage. Fixed a double Groq call per reasoning query. |
+| Data state (local) | `public` (11 raw tables) **and** `clean` (ETL run 2026-09-22, 45,100 rows). Neo4j built from clean: 40,101 nodes / 86,160 relationships. |
 
 ---
 
@@ -35,7 +50,7 @@ Last updated: **2026-09-16**
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
 │  │                        API Layer (app/api/v1/)                          │ │
 │  │  /chat  /chat/stream  /etl/*  /graph/*  /documents/*  /retrieval/*     │ │
-│  │  /embeddings/*  /health                                                │ │
+│  │  /embedding/*  /health                                                 │ │
 │  └────────────────────────────────┬────────────────────────────────────────┘ │
 │                                   │                                          │
 │  ┌────────────────────────────────▼────────────────────────────────────────┐ │
@@ -45,8 +60,10 @@ Last updated: **2026-09-16**
 │  │       │              │               │               │                  │ │
 │  │       │         Regex+Keyword    Deterministic    Tool Aggregation      │ │
 │  │       │         Classification   Tool Execution                         │ │
+│  │       │                              │                                  │ │
+│  │       │                        ColumnMapper (logical → physical)        │ │
 │  │       │                                                                 │ │
-│  │       ├── Factual Path (0 LLM calls) → TemplateEngine → Response      │ │
+│  │       ├── Factual Path (0 LLM calls) → TemplateEngine + data → Response │ │
 │  │       └── Reasoning Path (1 LLM call) → Groq LLM → Response           │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
@@ -54,8 +71,8 @@ Last updated: **2026-09-16**
 │  │                     Data Processing Layer                               │ │
 │  │                                                                         │ │
 │  │  ETL Pipeline         Document Generation      Knowledge Graph          │ │
-│  │  (11 cleaners,        (6 builders: Case,       (11 node types,          │ │
-│  │   10 transforms)       Accused, Victim,         17 relationship types)  │ │
+│  │  (10 cleaners,        (6 builders: Case,       (11 node labels,         │ │
+│  │   7 transformers)      Accused, Victim,         17 relationship types)  │ │
 │  │                        Officer, District,                                │ │
 │  │  Embedding Pipeline    Court)                   Graph Builder            │ │
 │  │  (BAAI/bge-small)                              (2-pass MERGE loader)    │ │
@@ -72,7 +89,7 @@ Last updated: **2026-09-16**
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
 │  │                     External Services                                   │ │
-│  │  Groq API (llama-3.3-70b-versatile) — cloud LLM inference             │ │
+│  │  Groq API (model = MODEL_NAME) — cloud LLM inference, reasoning only   │ │
 │  │  HuggingFace Hub — embedding model download (BAAI/bge-small-en-v1.5)  │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -95,33 +112,56 @@ QueryRouter.route(request)
      │
      ├─► IntentDetector.detect(query)
      │   Uses regex + keyword patterns to classify into:
-     │   • identifier_lookup (e.g., "case 123")
-     │   • factual_query (e.g., "who is the officer for case 123?")
+     │   • identifier_lookup (e.g., "Find CaseNo 202300001", "officer EmployeeID 5313",
+     │                       "accused Fiyaz Saran")
+     │   • factual_query (e.g., "who is the investigating officer for CaseNo 202300001?")
      │   • semantic_search (e.g., "robbery cases in Bangalore")
      │   • graph_query (e.g., "who is related to accused X?")
-     │   • reasoning (e.g., "summarize case 123")
+     │   • reasoning (e.g., "summarize CaseNo 202300001")
+     │   Identifier kinds are typed and kept distinct:
+     │     case_number (CaseNo) ≠ crime_number (CrimeNo/FIR) ≠ case_id (CaseMasterID)
+     │     officer_id (EmployeeID) · victim_id · accused_id · accused_name (never unique)
      │
      ├─► Resolve history identifiers (if "that case" referenced)
      │
      ├─► QueryPlanner.execute(intent)
      │   Deterministic tool execution (no LLM decision-making):
      │   • postgres_tools: get_case_lookup, get_officer_compact,
-     │     get_case_victims_list, get_case_accused_list, get_chargesheet_status
+     │     get_case_victims_list, get_case_accused_list, get_chargesheet_status,
+     │     find_accused_by_name
      │   • neo4j_tools: find_case_network, find_co_accused, get_case_timeline
      │   • qdrant_tools: search_similar_cases
-     │   Returns → PlannerContext with all fetched data
+     │   Every PostgreSQL tool goes through ColumnMapper:
+     │     logical table  "CaseMaster"  → "clean"."clean_CaseMaster" | "public"."CaseMaster"
+     │     logical column "case_number" → "CaseNo"  (value coerced to the column's bigint type)
+     │   Invalid identifiers → IdentifierValidationError → clean message, no SQL executed
+     │   Missing rows → ctx.errors ("No case was found for CaseNo 999999999.")
+     │   Returns → PlannerContext with all fetched DTOs
      │
      ├─► Decision Engine:
-     │   ├── Factual/Identifier → TemplateEngine (0 LLM calls, instant response)
-     │   └── Reasoning/Graph   → Groq LLM (1 LLM call with pre-fetched context)
+     │   ├── Factual/Identifier → TemplateEngine (0 LLM calls) + structured payload
+     │   └── Reasoning/Graph   → Groq LLM (1 LLM call with pre-fetched compact context)
      │
-     └─► ResponseBuilder.build(query, answer, citations, sources, metrics)
+     └─► ResponseBuilder.build(query, answer, citations, sources, metrics, response_type, data)
               │
               ▼
-         ChatResponse { answer, citations, sources, retrieval_metrics }
+         ChatResponse { answer (Markdown), response_type, data, citations, sources, retrieval }
               │
               ▼
-         Streamed to Streamlit via SSE or returned as JSON
+         Returned as JSON, or streamed via SSE:
+           {"event":"token"} → {"event":"complete", response_type, data, citations, ...} → [DONE]
+           on failure: {"event":"error","data":"Database query failed."} → [DONE]
+```
+
+Example chain for *"Who is the investigating officer for CaseNo 202300001?"*:
+
+```
+SELECT "CaseMasterID","CaseNo","CrimeNo","PolicePersonID","PoliceStationID","CaseStatusID"
+  FROM "clean"."clean_CaseMaster" WHERE "CaseNo" = :val LIMIT 1        -- {'val': 202300001}
+SELECT "EmployeeID","FirstName","KGID","DesignationID","RankID"
+  FROM "clean"."clean_Employee" WHERE "EmployeeID" = :val LIMIT 1       -- {'val': 5313}
+→ "The investigating officer for CaseNo 202300001 is Oliver (EmployeeID 5313, KGID: KG10313)."
+→ response_type = officer_details, GROQ CALLED: NO
 ```
 
 ### Flow 2: ETL Pipeline (Raw Data → Clean Schema)
@@ -148,11 +188,13 @@ ETLPipeline.run()
      │   • Generates per-table quality reports
      │
      ├─► Step 3 & 4: Clean + Transform
-     │   • CleaningPipeline (11 composable cleaners):
-     │     NullNormalizer, DateNormalizer, GenderNormalizer,
-     │     TextCleaner, NumericCleaner, AddressCleaner, etc.
-     │   • TransformationPipeline (10 derived columns):
-     │     CrimeYear, IsNightCrime, SearchText, AgeGroup, etc.
+     │   • CleaningPipeline (10 composable cleaners):
+     │     NullNormalizer, TrimSpaces, CollapseSpaces, GenderNormalizer,
+     │     PhoneNormalizer, CrimeNumberNormalizer, DateNormalizer,
+     │     DatetimeConverter, DuplicateRemover, NumericConverter
+     │   • TransformationPipeline (7 transformers, derived columns):
+     │     crime_year/month/week/weekday, crime_hour, is_weekend,
+     │     is_night_crime, incident_duration_hours, canonical_address, search_text
      │
      ├─► Step 5: Validate (DataValidator)
      │   • PK/FK integrity checks
@@ -168,7 +210,7 @@ ETLPipeline.run()
 ### Flow 3: Knowledge Layer Build (Clean Data → Graph + Vectors)
 
 ```
-Trigger: POST /api/v1/documents/build → POST /api/v1/graph/build → POST /api/v1/embeddings/build
+Trigger: POST /api/v1/etl/run → POST /api/v1/documents/build → POST /api/v1/graph/build → POST /api/v1/embedding/build
      │
      ├─► Document Generation (DocumentOrchestrator)
      │   │
@@ -176,25 +218,45 @@ Trigger: POST /api/v1/documents/build → POST /api/v1/graph/build → POST /api
      │   │   CaseSummaryBuilder, AccusedProfileBuilder, VictimProfileBuilder,
      │   │   OfficerProfileBuilder, DistrictSummaryBuilder, CourtSummaryBuilder
      │   │
-     │   ├── Each builder reads from PostgreSQL `clean` schema
+     │   ├── Each builder reads from PostgreSQL `clean` schema (requires the ETL to have run)
      │   ├── Generates rich natural-language AI Documents (structured JSON)
      │   ├── DocumentValidator checks quality (length, completeness)
      │   └── Saves to DocumentStore (file-based JSON storage)
      │
      ├─► Neo4j Knowledge Graph (GraphBuilder)
      │   │
-     │   ├── Pass 1: Load Nodes (11 types)
-     │   │   Case, Accused, Employee (Officer), Court, Victim,
-     │   │   Offence, District, PoliceStation, Vehicle, MobileNumber, BankAccount
+     │   ├── Source resolution via ColumnMapper, per logical table:
+     │   │   clean.clean_<T> if the ETL produced it, else <SOURCE_SCHEMA>.<T>
+     │   │   (REQUIRE_CLEAN_SCHEMA=true → clean only, hard ETL error otherwise)
+     │   │   Unresolvable table → reported with both candidate names; if none
+     │   │   resolve, build returns HTTP 500 — never a "success" with 0 nodes
+     │   │
+     │   ├── Pass 1: Load Nodes (11 labels, MERGE on the stable key, SET n += row)
+     │   │   Case{CaseMasterID}  Accused{AccusedMasterID}  Victim{VictimMasterID}
+     │   │   Complainant{ComplainantID}  Employee{EmployeeID}  Court{CourtID}
+     │   │   District{DistrictID}  Unit{UnitID}  Arrest{ArrestSurrenderID}
+     │   │   Chargesheet{CSID}  ActSection{ActID, SectionID}
+     │   │   → an accused named "Fiyaz Saran" on 15 cases is 15 distinct nodes;
+     │   │     PersonID / AccusedMasterID / CaseMasterID are the identity, never the name
      │   │
      │   ├── Pass 2: Load Relationships (17 types)
-     │   │   INVESTIGATED_BY, ACCUSED_IN, VICTIM_OF, CHARGED_WITH,
-     │   │   OCCURRED_AT, REGISTERED_AT, USES_VEHICLE, HAS_PHONE,
-     │   │   HAS_ACCOUNT, TRIED_AT, BELONGS_TO, etc.
+     │   │   (District)-[:HAS_UNIT]->(Unit)          (District)-[:HAS_COURT]->(Court)
+     │   │   (Unit)-[:HAS_EMPLOYEE]->(Employee)      (Employee)-[:WORKS_IN]->(District)
+     │   │   (Case)-[:REGISTERED_AT]->(Unit)         (Case)-[:HEARD_IN]->(Court)
+     │   │   (Employee)-[:INVESTIGATES]->(Case)      (Case)-[:HAS_ACCUSED]->(Accused)
+     │   │   (Case)-[:HAS_VICTIM]->(Victim)          (Case)-[:HAS_COMPLAINANT]->(Complainant)
+     │   │   (Case)-[:HAS_SECTION]->(ActSection)     (Case)-[:HAS_CHARGESHEET]->(Chargesheet)
+     │   │   (Employee)-[:FILES_CHARGESHEET]->(Chargesheet)
+     │   │   (Case)-[:HAS_ARREST]->(Arrest)          (Arrest)-[:ARRESTED_PERSON]->(Accused)
+     │   │   (Employee)-[:MADE_ARREST]->(Arrest)     (Arrest)-[:PRODUCED_IN]->(Court)
      │   │
      │   ├── Server-side cursors for memory-efficient batch processing
      │   ├── Idempotent MERGE operations (fully restartable)
      │   └── Automatic constraint & index management via SchemaManager
+     │
+     │   Last local build (2026-09-22, from clean): 11 tables, 40,101 nodes, 86,160 relationships,
+     │   0 errors — Case 5000 · Accused 12392 · Victim 5000 · Complainant 5000 · Employee 500 ·
+     │   Unit 250 · Court 80 · District 31 · Arrest 9372 · Chargesheet 2475 · ActSection 1
      │
      └─► Embedding Generation (EmbeddingPipeline)
          │
@@ -252,8 +314,8 @@ RetrievalEngine.query() / hybrid() / search()
 | Schema Discovery | `schema_discovery.py` | Auto-discovers PostgreSQL schema via SQLAlchemy Inspector |
 | Data Extraction | `extract.py` | Chunked data extraction into Pandas DataFrames |
 | Data Profiling | `profile.py` | Quality analysis (nulls, duplicates, outliers, type mismatches) |
-| Cleaning Pipeline | `cleaning.py` | 11 composable cleaners (NullNormalizer, DateNormalizer, etc.) |
-| Transformation | `transform.py` | 10 derived analytical columns (CrimeYear, IsNightCrime, etc.) |
+| Cleaning Pipeline | `cleaning.py` | 10 composable cleaners (NullNormalizer, DateNormalizer, etc.) |
+| Transformation | `transform.py` | 7 transformers producing derived columns (crime_year, is_night_crime, search_text, etc.) |
 | Validation | `validation.py` | PK/FK integrity, range validation |
 | Data Loading | `load.py` | Transactional TRUNCATE+INSERT into `clean` schema |
 | Pipeline Orchestrator | `pipeline.py` | Full pipeline: Discovery → Extract → Profile → Clean → Transform → Validate → Load |
@@ -262,9 +324,12 @@ RetrievalEngine.query() / hybrid() / search()
 | Interfaces | `interfaces.py` | DataProvider protocol for downstream consumption |
 
 **API Endpoints:**
-- `POST /api/v1/etl/run` — Run full ETL pipeline
+- `POST /api/v1/etl/run` — Run full ETL pipeline (then refreshes the ColumnMapper)
 - `GET /api/v1/etl/status` — Last pipeline run status
-- `GET /api/v1/etl/schema` — Discover database schema
+- `GET /api/v1/etl/schema`, `/tables`, `/relationships` — Discovery output
+- `GET /api/v1/etl/reports/profile/{table}`, `/reports/validation/{table}`, `/reports/summary` — Reports
+
+**Local state:** run on 2026-09-22 — 11 tables, 45,100 rows loaded into `clean.clean_*` in 18.6s, 0 errors.
 
 ---
 
@@ -292,23 +357,31 @@ RetrievalEngine.query() / hybrid() / search()
 
 ### 2b — Neo4j Knowledge Graph (backend/app/graph/)
 
-**11 Node Types:**
-`Case`, `Accused`, `Employee`, `Court`, `Victim`, `Offence`, `District`, `PoliceStation`, `Vehicle`, `MobileNumber`, `BankAccount`
+**11 Node Labels** (MERGE key in braces):
+`Case{CaseMasterID}`, `Accused{AccusedMasterID}`, `Victim{VictimMasterID}`, `Complainant{ComplainantID}`, `Employee{EmployeeID}`, `Court{CourtID}`, `District{DistrictID}`, `Unit{UnitID}`, `Arrest{ArrestSurrenderID}`, `Chargesheet{CSID}`, `ActSection{ActID, SectionID}`. Every source column becomes a node property (`SET n += row`), so properties carry the physical PostgreSQL names (`CaseNo`, `CrimeNo`, `AccusedName`, `PersonID`, `FirstName`, `KGID`, …).
 
 **17 Relationship Types:**
-`INVESTIGATED_BY`, `ACCUSED_IN`, `VICTIM_OF`, `CHARGED_WITH`, `OCCURRED_AT`, `REGISTERED_AT`, `USES_VEHICLE`, `HAS_PHONE`, `HAS_ACCOUNT`, `TRIED_AT`, `BELONGS_TO`, and more investigative linkages.
+`HAS_UNIT`, `HAS_COURT`, `HAS_EMPLOYEE`, `WORKS_IN`, `REGISTERED_AT`, `HEARD_IN`, `INVESTIGATES`, `HAS_ACCUSED`, `HAS_VICTIM`, `HAS_COMPLAINANT`, `HAS_SECTION`, `HAS_CHARGESHEET`, `FILES_CHARGESHEET`, `HAS_ARREST`, `ARRESTED_PERSON`, `MADE_ARREST`, `PRODUCED_IN`.
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| Graph Builder | `builder.py` | 2-pass orchestration (Nodes → Relationships) |
-| Schema Manager | `schema_manager.py` | Constraints, indexes, schema initialization |
-| Node Queries | `queries/nodes.py` | Cypher MERGE queries for all 11 node types |
-| Relationship Queries | `queries/relationships.py` | Cypher MERGE queries for 17 relationship types |
-| Config | `config.py` | Batch size, source schema settings |
+| Graph Builder | `builder.py` | Resolves logical source tables via `ColumnMapper`; 2-pass orchestration (Nodes → Relationships); `status` / `source_tables` / `tables_failed` reporting; `GraphBuildError` when nothing loads |
+| Schema Manager | `schema_manager.py` | Unique constraints on every MERGE key, indexes on `CaseNo` / `CrimeNo` |
+| Node Queries | `queries/nodes.py` | Cypher MERGE queries keyed by logical table (`"CaseMaster"`, not `"clean_CaseMaster"`) |
+| Relationship Queries | `queries/relationships.py` | 17 MERGE queries keyed `"<LogicalTable>:<REL_TYPE>"` |
+| Config | `config.py` | `source_schema`, `clean_schema`, `require_clean_schema`, batch size |
 
 **API Endpoints:**
-- `POST /api/v1/graph/build` — Build Neo4j knowledge graph
-- `GET /api/v1/graph/statistics` — Node/edge counts by type
+- `POST /api/v1/graph/build` / `POST /api/v1/graph/update` — Build (idempotent MERGE upsert); HTTP 500 with per-table `schema.table` errors when no source can be resolved
+- `GET /api/v1/graph/statistics` — Live node counts per label and relationship counts per type
+
+**Verification queries (pass on the local build):**
+```cypher
+MATCH (c:Case {CaseNo: 202300001}) RETURN c.CaseMasterID, c.CrimeNo, c.PolicePersonID   // 1, 100170200202300001, 5313
+MATCH (a:Accused {PersonID: 'A1'}) RETURN a.AccusedMasterID, a.AccusedName, a.CaseMasterID   // 1, 'Fiyaz Saran', 1
+MATCH (c:Case {CaseNo: 202300001})-[:HAS_ACCUSED]->(a:Accused {PersonID: 'A1'}) RETURN a.AccusedMasterID
+MATCH (a:Accused {AccusedName: 'Fiyaz Saran'}) RETURN count(a), count(DISTINCT a.PersonID)    // 15, 15
+```
 
 ### 2c — Embedding Generation & Qdrant (backend/app/embeddings/)
 
@@ -326,10 +399,12 @@ RetrievalEngine.query() / hybrid() / search()
 | Statistics | `statistics.py` | Processing progress tracking |
 | Config | `config.py` | Model, Qdrant, collection settings |
 
-**API Endpoints:**
-- `POST /api/v1/embeddings/build` — Full vector build
-- `POST /api/v1/embeddings/update` — Incremental sync
-- `GET /api/v1/embeddings/statistics` — Collection stats
+**API Endpoints** (prefix is singular `/api/v1/embedding`):
+- `POST /api/v1/embedding/build` — Full vector build
+- `POST /api/v1/embedding/update` — Incremental sync
+- `DELETE /api/v1/embedding/rebuild` — Drop collection and rebuild
+- `POST /api/v1/embedding/search` — Semantic search
+- `GET /api/v1/embedding/statistics`, `/models`, `/health`
 
 ---
 
@@ -353,11 +428,11 @@ RetrievalEngine.query() / hybrid() / search()
 | Analytics | `analytics.py` | Score distributions, type breakdowns, top documents |
 
 **API Endpoints:**
-- `POST /api/v1/retrieval/search` — Semantic search
-- `POST /api/v1/retrieval/hybrid` — Hybrid (semantic + graph) search
 - `GET /api/v1/retrieval/statistics` — Retrieval analytics
 - `GET /api/v1/retrieval/health` — Engine health status
 - `GET /api/v1/retrieval/config` — Current configuration
+
+`RetrievalEngine.search()` / `hybrid()` / `context()` are consumed internally by the chat planner (`qdrant_tools.search_similar_cases`); they are not exposed over HTTP.
 
 ---
 
@@ -368,17 +443,19 @@ RetrievalEngine.query() / hybrid() / search()
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| LLM Client | `llm/client.py` | Abstract LLM client interface |
-| Groq Provider | `llm/providers/groq_provider.py` | Groq API integration (llama-3.3-70b-versatile) |
-| Prompt Builder | `llm/prompt_builder.py` | Structured system + user prompts with context |
-| Schemas | `llm/schemas.py` | ChatRequest, ChatResponse, RetrievalMetrics, Citation |
-| Citation Builder | `rag/citation_builder.py` | Extracts document references, scores, formats |
-| Response Builder | `rag/response_builder.py` | Validates & structures LLM responses |
-| Validator | `rag/validator.py` | Quality and completeness checks |
+| LLM Client | `llm/client.py` | Provider factory (Groq) |
+| Groq Provider | `llm/providers/groq_provider.py` | Groq API integration; model from `MODEL_NAME` |
+| Prompt Builder | `llm/prompt_builder.py` | Legacy GraphRAG prompt (the router builds its own compact prompt) |
+| Schemas | `llm/schemas.py` | ChatRequest, ChatResponse (`answer` + `response_type` + `data`), RetrievalMetrics, Citation |
+| Citation Builder | `rag/citation_builder.py` | Maps document IDs cited by the LLM back to sources |
+| Response Builder | `rag/response_builder.py` | Assembles ChatResponse, computes confidence |
+| Validator | `rag/validator.py` | Query validation |
 
 **API Endpoints:**
-- `POST /api/v1/chat` — Synchronous RAG chat (full JSON response)
-- `POST /api/v1/chat/stream` — SSE streaming RAG chat
+- `POST /api/v1/chat` — Synchronous chat (full JSON response). Tool/DB failures → HTTP 500 with a user-safe message
+- `POST /api/v1/chat/stream` — SSE chat. Events: `token` → `complete` (with `response_type`, `data`, `citations`, `sources`, `confidence`, `retrieval`) → `[DONE]`; failures → `error` event + `[DONE]`
+
+**Groq usage:** factual/identifier queries make **0** LLM calls; reasoning queries make exactly **1** (a previous double call per request was removed).
 
 ---
 
@@ -389,19 +466,23 @@ RetrievalEngine.query() / hybrid() / search()
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| Entry Point | `app.py` | Page config, global CSS, health check, routing |
-| Chat Page | `pages/Chat.py` | Real-time SSE streaming, citation cards, retrieval metrics |
+| Entry Point | `app.py` | Page config, global CSS (incl. `.ci-*` card/table styles), health check, routing |
+| Chat Page | `pages/Chat.py` | SSE streaming, structured rendering via ResponseRenderer, Citations & Metrics expander |
+| Response Renderer | `components/response_renderer.py` | `render_response()` dispatches on `response_type`: `case_details`, `officer_details`, `person_details`, `search_results`, `statistics`; Markdown `answer` fallback; HTML-escaped, never raw JSON/Markdown |
+| Chat Message | `components/chat_message.py` | Native `st.chat_message` containers (Markdown renders; components nest inside bubbles) |
+| Response Schemas | `api/schemas.py` | `TypedDict`s mirroring the backend `response_type`/`data` contract |
 | Dashboard | `pages/Dashboard.py` | System health, score distributions, Plotly analytics |
 | About Page | `pages/About.py` | Architecture overview, technology stack docs |
 | Sidebar | `components/sidebar.py` | Live health indicator, model info, query settings |
-| Backend Client | `api/client.py` | httpx REST client (no direct DB access) |
+| Backend Client | `api/client.py` | httpx REST client (no direct DB access); parses `response_type`/`data` from JSON and SSE `complete` |
 | Utilities | `utils/` | Helpers, constants, formatters |
 
 **Design Features:**
 - Inter font family, gradient sidebar, rounded inputs
-- Metric cards with hover effects
+- Database results rendered as field-grid cards and scrollable tables (responsive grid, 2 columns on phones)
+- Multi-record name searches show every record with `AccusedMasterID` / `CaseMasterID` / `PersonID` plus a disambiguation note
 - Hidden Streamlit branding for professional appearance
-- Error handling with retry connection button
+- Error handling with retry connection button; backend `error` events shown inline, stream never hangs
 
 ---
 
@@ -412,19 +493,23 @@ RetrievalEngine.query() / hybrid() / search()
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| Query Router | `router.py` | Hybrid pipeline orchestrator (factual vs reasoning paths) |
-| Intent Detector | `intent_detector.py` | Regex + keyword query classifier (5 intent categories) |
-| Query Planner | `planner.py` | Deterministic tool execution (no LLM decision-making) |
-| Planner Context | `planner_context.py` | Shared state container for tool execution results |
-| Column Mapper | `mapper.py` | Dynamic PostgreSQL schema → logical identifier mapping |
-| Template Engine | `template_engine.py` | Zero-LLM response templates for factual queries |
-| Tool Registry | `tool_registry.py` | Centralized tool registration and discovery |
-| Context Builder | `context_builder.py` | Aggregates tool results into LLM-ready context |
-| PostgreSQL Tools | `postgres_tools.py` | Direct DB lookups (cases, officers, victims, accused, chargesheets) |
-| Neo4j Tools | `neo4j_tools.py` | Graph traversal tools (networks, co-accused, timelines) |
+| Query Router | `router.py` | Factual vs reasoning routing; attaches `response_type`/`data`; re-raises `ToolError` for the API boundary; `[TRACE]` logging |
+| Intent Detector | `intent_detector.py` | Regex classifier; extracts typed identifiers and keeps `case_number` / `crime_number` / `case_id` / `officer_id` / `accused_name` distinct |
+| Query Planner | `planner.py` | Deterministic tool execution (no LLM decision-making); CaseNo → CaseMasterID → PolicePersonID → Employee chains; clean not-found messages |
+| Planner Context | `planner_context.py` | Shared state container (typed identifiers + DTO results) |
+| Column Mapper | `mapper.py` | Logical table/column → physical `schema.table.column` from `information_schema`; clean-preferred with source-schema fallback; column types for identifier coercion; diagnostic `MappingError`s; `resolve_physical_table()` shared with the graph builder |
+| Template Engine | `template_engine.py` | Zero-LLM Markdown answers from DTOs (incl. multi-record accused-by-name) |
+| Tool Registry | `tool_registry.py` | Tool registration (kept for the LLM tool-calling schema) |
+| Context Builder | `context_builder.py` | Compact case summary text for the reasoning path |
+| PostgreSQL Tools | `postgres_tools.py` | Parameterised lookups with explicit column lists; values coerced to physical types; `DatabaseQueryError` on failure |
+| Neo4j Tools | `neo4j_tools.py` | Graph traversal tools (networks, co-accused, timelines) — see Known Issues |
 | Qdrant Tools | `qdrant_tools.py` | Semantic search tool wrapper |
-| DTOs | `dtos.py` | Data Transfer Objects for tool results |
+| DTOs | `dtos.py` | `CaseLookupDTO`, `OfficerDTO`, `VictimDTO`, `AccusedDTO` (with `person_id`, `case_id`), `ChargesheetDTO` |
+| Exceptions | `exceptions.py` | `ToolError` → `MappingError`, `DatabaseQueryError`, `IdentifierValidationError` (each with a user-safe message) |
+| Tracing | `tracing.py` | `trace()` helper for structured DEBUG records (no secrets) |
 | Schemas | `schemas.py` | ToolCall, ToolResult data models |
+
+**Schema resolution policy** (`REQUIRE_CLEAN_SCHEMA`, default `false`): for each logical table `T`, use `<CLEAN_SCHEMA>.clean_T` if it exists, else `<SOURCE_SCHEMA>.T`. With `true`, only clean is accepted and a missing table fails startup / graph build with an explicit ETL error. The mapper is refreshed after `POST /etl/run` so newly created clean tables take effect without a restart.
 
 ### Database Initialization (backend/app/database_initializer/)
 
@@ -463,8 +548,8 @@ crime-intelligence-bot/
 │   │   │   ├── etl_routes.py          #   /etl/run, /etl/status, /etl/schema
 │   │   │   ├── graph_routes.py        #   /graph/build, /graph/statistics
 │   │   │   ├── document_routes.py     #   /documents/build, /documents/statistics
-│   │   │   ├── embedding_routes.py    #   /embeddings/build, /embeddings/update
-│   │   │   └── retrieval_routes.py    #   /retrieval/search, /retrieval/hybrid
+│   │   │   ├── embedding_routes.py    #   /embedding/build, /embedding/update, /embedding/search
+│   │   │   └── retrieval_routes.py    #   /retrieval/statistics, /health, /config
 │   │   ├── core/                      # Configuration & database connections
 │   │   │   ├── config.py              #   Pydantic Settings (.env reader)
 │   │   │   ├── database.py            #   SQLAlchemy engine singleton
@@ -480,8 +565,8 @@ crime-intelligence-bot/
 │   │   │   ├── schema_discovery.py    #   Auto schema inspection
 │   │   │   ├── extract.py             #   Data extraction
 │   │   │   ├── profile.py             #   Data quality profiling
-│   │   │   ├── cleaning.py            #   11 composable cleaners
-│   │   │   ├── transform.py           #   10 derived columns
+│   │   │   ├── cleaning.py            #   10 composable cleaners
+│   │   │   ├── transform.py           #   7 transformers (derived columns)
 │   │   │   ├── validation.py          #   PK/FK integrity checks
 │   │   │   ├── load.py                #   Transactional loader
 │   │   │   ├── config.py              #   ETL configuration
@@ -500,10 +585,10 @@ crime-intelligence-bot/
 │   │   │   ├── validation.py          #   Quality checks
 │   │   │   └── statistics.py          #   Progress tracker
 │   │   ├── graph/                     # Neo4j knowledge graph
-│   │   │   ├── builder.py             #   2-pass builder (Nodes → Rels)
+│   │   │   ├── builder.py             #   2-pass builder (Nodes → Rels), mapper-based source resolution
 │   │   │   ├── schema_manager.py      #   Constraints & indexes
-│   │   │   ├── config.py              #   Graph build config
-│   │   │   └── queries/               #   Cypher query definitions
+│   │   │   ├── config.py              #   source/clean schema, require_clean_schema, batch size
+│   │   │   └── queries/               #   Cypher query definitions keyed by LOGICAL table
 │   │   │       ├── nodes.py           #     11 node MERGE queries
 │   │   │       └── relationships.py   #     17 relationship MERGE queries
 │   │   ├── embeddings/                # Vector embedding platform
@@ -534,14 +619,16 @@ crime-intelligence-bot/
 │   │   │   ├── intent_detector.py     #   Regex intent classifier
 │   │   │   ├── planner.py             #   Deterministic tool planner
 │   │   │   ├── planner_context.py     #   Shared state container
-│   │   │   ├── mapper.py              #   Dynamic column mapper
+│   │   │   ├── mapper.py              #   ColumnMapper: logical → physical schema/table/column
 │   │   │   ├── template_engine.py     #   Zero-LLM response templates
 │   │   │   ├── tool_registry.py       #   Tool registration system
 │   │   │   ├── context_builder.py     #   Tool result aggregator
-│   │   │   ├── postgres_tools.py      #   Direct DB lookup tools
+│   │   │   ├── postgres_tools.py      #   Parameterised DB lookup tools
 │   │   │   ├── neo4j_tools.py         #   Graph traversal tools
 │   │   │   ├── qdrant_tools.py        #   Semantic search tools
 │   │   │   ├── dtos.py                #   Data Transfer Objects
+│   │   │   ├── exceptions.py          #   ToolError hierarchy (user-safe messages)
+│   │   │   ├── tracing.py             #   [TRACE] debug logging helper
 │   │   │   └── schemas.py             #   ToolCall/ToolResult models
 │   │   ├── llm/                       # LLM client layer
 │   │   │   ├── client.py              #   Abstract LLM interface
@@ -555,16 +642,25 @@ crime-intelligence-bot/
 │   │   │   ├── response_builder.py    #   Response structuring
 │   │   │   └── validator.py           #   Quality validation
 │   │   └── models/                    # SQLAlchemy ORM models
-│   ├── tests/                         # Unit & integration tests
+│   ├── tests/                         # Unit tests (273) + tests/integration (live DB)
+│   │   ├── test_services/             #   mapper, postgres tools, router flows, intent detector
+│   │   │   └── conftest.py            #   in-memory replica of the real public schema + fake DB
+│   │   ├── test_graph/                #   graph builder source resolution & failure reporting
+│   │   └── test_api/                  #   chat sync/SSE error contract
 │   └── requirements.txt               # Python dependencies
 ├── frontend/
-│   ├── app.py                         # Streamlit entry point
-│   ├── api/client.py                  # httpx REST client
+│   ├── app.py                         # Streamlit entry point + global CSS
+│   ├── api/
+│   │   ├── client.py                  # httpx REST client
+│   │   └── schemas.py                 # Typed response_type/data schemas
 │   ├── pages/
-│   │   ├── Chat.py                    # SSE streaming chat UI
+│   │   ├── Chat.py                    # SSE streaming chat UI with structured rendering
 │   │   ├── Dashboard.py               # Analytics dashboard (Plotly)
 │   │   └── About.py                   # Architecture docs
 │   ├── components/
+│   │   ├── response_renderer.py       # Cards/tables per response_type, Markdown fallback
+│   │   ├── chat_message.py            # Native chat containers
+│   │   ├── citation_card.py, metrics.py
 │   │   └── sidebar.py                 # Navigation + health
 │   ├── utils/                         # Helpers, constants
 │   └── requirements.txt               # Frontend dependencies
@@ -590,8 +686,20 @@ crime-intelligence-bot/
 3. **Zero-Hardcoded Schema**: ETL pipeline auto-discovers PostgreSQL schema via SQLAlchemy Inspector
 4. **Decoupled Neo4j**: Chat API works even if Neo4j is offline; graph enrichment is optional
 5. **Local-First Qdrant**: Uses embedded Qdrant (./qdrant_storage directory) — no server process required
-6. **Auto-Initialization**: On first startup, system auto-bootstraps all databases if they're empty
-7. **Dynamic Column Mapper**: Resolves logical identifiers (e.g., "CrimeNumber") to physical schema columns at startup
+6. **Auto-Initialization**: With `AUTO_INITIALIZE_DATABASE=true`, startup bootstraps PostgreSQL → ETL → Neo4j → Qdrant if they are empty (off by default locally)
+7. **Dynamic Column Mapper**: Resolves logical tables/columns (e.g. `CaseMaster.case_number`) to the physical schema at startup from `information_schema`; prefers the ETL clean tables and falls back to the source schema (`REQUIRE_CLEAN_SCHEMA`). Never fabricates a mapping — missing tables/columns fail with a diagnostic
+8. **Stable identifiers only**: `CaseNo`, `CrimeNo`, `CaseMasterID`, `EmployeeID`, `AccusedMasterID`, `PersonID` are distinct and typed; names are never treated as identity
+9. **Database is the source of truth**: the LLM never answers factual record questions from memory — factual paths make 0 LLM calls, and tool/DB failures surface as structured errors rather than LLM fallbacks
+10. **Dual response format**: every answer ships as Markdown (`answer`) and as structured data (`response_type` + `data`) so the UI can render cards/tables while any client still gets readable text
+
+---
+
+## ⚠️ Known Issues / Next Steps
+
+1. **Neo4j tool property names** — `services/tools/neo4j_tools.py` and `retrieval/graph_search.py` reference `CrimeNumber`, `Age`, `Sex`, `EmployeeName`, `FIRNo`, but graph nodes carry the physical column names (`CrimeNo`, `AgeYear`, `GenderID`, `FirstName`). Case network / co-accused / timeline answers return nulls for those fields until aligned.
+2. **`ActSection` has 1 node** — the sample `ActSectionAssociation` data has a single distinct `(ActID, SectionID)`.
+3. **`prompt_builder.py` / `citation_builder.py`** are legacy GraphRAG components no longer on the chat path.
+4. **Documents & embeddings** have not been (re)built locally since the ETL run; run `POST /documents/build` then `POST /embedding/build` to enable semantic search over current data.
 
 ---
 
@@ -599,7 +707,7 @@ crime-intelligence-bot/
 
 | Metric | Value |
 |--------|-------|
-| Factual query latency | < 50ms (0 LLM calls) |
+| Factual query latency | ~2–10 ms of SQL (0 LLM calls) |
 | Semantic search latency | < 200ms |
 | LLM reasoning latency | 2-5s (depends on Groq load) |
 | Embedding generation | ~384 dimensions, batch 256 |

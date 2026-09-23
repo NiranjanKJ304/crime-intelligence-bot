@@ -8,6 +8,7 @@ ETL pipeline and its outputs.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -55,9 +56,18 @@ def run_pipeline() -> dict[str, Any]:
     try:
         result = pipeline.run()
         _last_result = result
-        return result.summary()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {exc}")
+
+    # The clean tables now exist: re-resolve logical tables so the tools layer
+    # and graph builder pick them up without a restart.
+    try:
+        from app.services.tools.mapper import ColumnMapper
+        ColumnMapper.get_instance().refresh()
+    except Exception as exc:  # never fail the ETL response over a mapper refresh
+        logging.getLogger(__name__).warning("ColumnMapper refresh after ETL failed: %s", exc)
+
+    return result.summary()
 
 
 @router.get("/status", summary="Get last pipeline run status")

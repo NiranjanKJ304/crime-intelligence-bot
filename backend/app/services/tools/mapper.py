@@ -244,6 +244,22 @@ class ColumnMapper:
         if not self._initialized:
             self.initialize()
 
+    def refresh(self) -> None:
+        """Re-read information_schema (e.g. after the ETL created clean tables)."""
+        self.initialize()
+
+    def resolve_physical_table(self, logical_table: str, *, refresh: bool = False) -> tuple[str, str]:
+        """
+        Resolve ANY source table (not only the tools-layer TABLE_SPECS) with the
+        same policy: <clean_schema>.clean_<T> if the ETL produced it, otherwise
+        <source_schema>.<T>; strict clean-only when require_clean_schema is set.
+        Raises MappingError with diagnostics when the table exists in neither.
+        """
+        if refresh or not self._catalog:
+            self._load_catalog()
+        resolved = self._resolve_table(logical_table)
+        return resolved.schema, resolved.table
+
     # ── Lookups ───────────────────────────────────────────────────────
 
     def get_resolved_table(self, logical_table: str) -> ResolvedTable:
