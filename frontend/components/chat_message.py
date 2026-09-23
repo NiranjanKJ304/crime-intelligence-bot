@@ -19,6 +19,9 @@ ASSISTANT_AVATAR = "🔍"
 
 def render_user_message(text: str) -> None:
     with st.chat_message("user", avatar=USER_AVATAR):
+        # Custom avatars all get the same test id, so a hidden marker lets the
+        # CSS style user bubbles differently from assistant bubbles.
+        st.markdown('<span class="ci-user-marker"></span>', unsafe_allow_html=True)
         st.markdown(text)
 
 

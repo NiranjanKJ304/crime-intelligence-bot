@@ -1,0 +1,12 @@
+# Pin the theme so text/background pairs in the app CSS are always designed
+# against a known background (browser/OS preference no longer flips it).
+[theme]
+base = "dark"
+primaryColor = "#4A90D9"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#161B22"
+textColor = "#E6EDF3"
+font = "sans serif"
+
+[server]
+headless = true

@@ -1,8 +1,12 @@
 """
 Metrics panel component — shows RAG pipeline performance stats.
+
+Styled by the .ci-metric* classes in app.py (dark surface, light text).
 """
 
 from __future__ import annotations
+
+import html
 
 import streamlit as st
 
@@ -13,19 +17,9 @@ from utils.helpers import fmt_ms, fmt_score, fmt_tokens
 def render_metrics_panel(metrics: RetrievalMetrics, confidence: float) -> None:
     """Render the performance metrics panel below the AI response."""
 
-    st.markdown(
-        """
-        <p style="font-weight:600; font-size:0.85rem; color:#1B3A5C;
-                  margin:0.8rem 0 0.4rem; text-transform:uppercase;
-                  letter-spacing:0.4px;">
-            📊 &nbsp;Pipeline Metrics
-        </p>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown('<p class="ci-section-title">📊 &nbsp;Pipeline Metrics</p>', unsafe_allow_html=True)
 
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
         _metric_card("Confidence", fmt_score(confidence), icon="🎯")
     with col2:
@@ -36,7 +30,6 @@ def render_metrics_panel(metrics: RetrievalMetrics, confidence: float) -> None:
         _metric_card("Documents", str(metrics.documents_used), icon="📄")
 
     col5, col6, col7, col8 = st.columns(4)
-
     with col5:
         _metric_card("Prompt Build", fmt_ms(metrics.prompt_build_time_ms), icon="🛠️")
     with col6:
@@ -46,13 +39,8 @@ def render_metrics_panel(metrics: RetrievalMetrics, confidence: float) -> None:
     with col8:
         _metric_card("Total Tokens", fmt_tokens(metrics.total_tokens), icon="🔢")
 
-    # Model badge
     st.markdown(
-        f"""
-        <p style="font-size:0.75rem; color:#6C757D; margin-top:0.3rem;">
-            Model: <code>{metrics.model}</code>
-        </p>
-        """,
+        f'<p class="ci-muted">Model: <code>{html.escape(metrics.model or "—")}</code></p>',
         unsafe_allow_html=True,
     )
 
@@ -60,15 +48,9 @@ def render_metrics_panel(metrics: RetrievalMetrics, confidence: float) -> None:
 def _metric_card(label: str, value: str, icon: str = "") -> None:
     st.markdown(
         f"""
-        <div style="background:#F8F9FA; border:1px solid #E8ECF0; border-radius:8px;
-                    padding:0.5rem 0.6rem; text-align:center;">
-            <p style="margin:0; font-size:0.7rem; color:#6C757D; text-transform:uppercase;
-                      letter-spacing:0.3px;">
-                {icon} {label}
-            </p>
-            <p style="margin:0; font-size:1.05rem; font-weight:700; color:#1B3A5C;">
-                {value}
-            </p>
+        <div class="ci-metric">
+            <p class="ci-metric-label">{icon} {html.escape(label)}</p>
+            <p class="ci-metric-value">{html.escape(value)}</p>
         </div>
         """,
         unsafe_allow_html=True,

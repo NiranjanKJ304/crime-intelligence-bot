@@ -18,14 +18,14 @@ def render() -> None:
     st.markdown(
         f"""
         <div style="padding:0.8rem 0 0.4rem;">
-            <h1 style="margin:0; font-size:1.6rem; font-weight:700; color:#1B3A5C;">
+            <h1 class="ci-page-title" style="font-size:1.6rem;">
                 {APP_ICON}  About
             </h1>
-            <p style="margin:0.2rem 0 0; font-size:0.88rem; color:#6C757D;">
+            <p class="ci-page-subtitle" style="font-size:0.88rem;">
                 Architecture, components, and technology stack
             </p>
         </div>
-        <hr style="margin:0 0 1rem; border-color:#E8ECF0;">
+        <hr style="margin:0 0 1rem;">
         """,
         unsafe_allow_html=True,
     )
@@ -118,15 +118,14 @@ def render() -> None:
     for phase, title, desc, status in phases:
         st.markdown(
             f"""
-            <div style="background:#F8F9FA; border:1px solid #E8ECF0; border-radius:10px;
-                        padding:0.6rem 1rem; margin-bottom:0.5rem; display:flex;
+            <div class="ci-panel" style="padding:0.6rem 1rem; margin-bottom:0.5rem; display:flex;
                         align-items:center; gap:0.8rem;">
                 <span style="font-size:1.2rem;">{status}</span>
                 <div>
-                    <p style="margin:0; font-weight:700; font-size:0.88rem; color:#1B3A5C;">
+                    <p style="margin:0; font-weight:700; font-size:0.88rem; color:#F3F6FA;">
                         {phase}: {title}
                     </p>
-                    <p style="margin:0; font-size:0.78rem; color:#6C757D;">{desc}</p>
+                    <p style="margin:0; font-size:0.78rem; color:#9FB0C3;">{desc}</p>
                 </div>
             </div>
             """,
@@ -138,7 +137,7 @@ def render() -> None:
     # ── Footer ─────────────────────────────────────────────────────
     st.markdown(
         """
-        <div style="text-align:center; padding:1rem 0; color:#9E9E9E; font-size:0.75rem;">
+        <div style="text-align:center; padding:1rem 0; color:#9FB0C3; font-size:0.75rem;">
             Built for Karnataka State Police &nbsp;•&nbsp; Crime Intelligence Division<br>
             Powered by Semantic RAG &nbsp;|&nbsp; Qdrant &nbsp;|&nbsp; Groq &nbsp;|&nbsp; Llama 3.3
         </div>
@@ -150,16 +149,14 @@ def render() -> None:
 def _info_card(label: str, value: str, icon: str, description: str) -> None:
     st.markdown(
         f"""
-        <div style="background:white; border:1px solid #E0E0E0; border-radius:10px;
-                    padding:0.75rem 0.9rem; margin-bottom:0.6rem;
-                    box-shadow:0 1px 4px rgba(0,0,0,0.04);">
-            <p style="margin:0; font-size:0.72rem; color:#6C757D; text-transform:uppercase;
+        <div class="ci-panel" style="padding:0.75rem 0.9rem; margin-bottom:0.6rem;">
+            <p style="margin:0; font-size:0.72rem; color:#9FB0C3; text-transform:uppercase;
                       letter-spacing:0.3px;">
                 {icon} &nbsp;{label}
             </p>
             <p style="margin:0.15rem 0 0.15rem; font-size:0.95rem; font-weight:700;
-                      color:#1B3A5C;">{value}</p>
-            <p style="margin:0; font-size:0.75rem; color:#888; line-height:1.4;">{description}</p>
+                      color:#F3F6FA;">{value}</p>
+            <p style="margin:0; font-size:0.75rem; color:#9FB0C3; line-height:1.4;">{description}</p>
         </div>
         """,
         unsafe_allow_html=True,

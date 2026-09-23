@@ -21,14 +21,13 @@ def render_sidebar() -> str:
             f"""
             <div style="text-align:center; padding: 0.5rem 0 0.8rem;">
                 <span style="font-size:2.8rem;">{APP_ICON}</span>
-                <h2 style="margin:0; font-weight:700; letter-spacing:-0.5px;
-                           color:#1B3A5C;">{APP_TITLE}</h2>
-                <p style="margin:0; font-size:0.78rem; color:#6C757D;
+                <h2 class="ci-page-title" style="font-size:1.3rem;">{APP_TITLE}</h2>
+                <p style="margin:0; font-size:0.78rem; color:#9FB0C3;
                           letter-spacing:0.3px;">
                     Karnataka Police &nbsp;•&nbsp; AI Investigation Unit
                 </p>
             </div>
-            <hr style="margin:0 0 0.6rem; border-color:#E0E0E0;">
+            <hr style="margin:0 0 0.6rem;">
             """,
             unsafe_allow_html=True,
         )
@@ -41,14 +40,14 @@ def render_sidebar() -> str:
             default_index=0,
             styles={
                 "container": {"padding": "0!important", "background-color": "transparent"},
-                "icon": {"color": "#2A5F9E", "font-size": "1rem"},
+                "icon": {"color": "#7CB3F1", "font-size": "1rem"},
                 "nav-link": {
                     "font-size": "0.9rem",
                     "text-align": "left",
                     "margin": "2px 0",
                     "padding": "0.55rem 0.8rem",
                     "border-radius": "8px",
-                    "--hover-color": "#E8F0FE",
+                    "--hover-color": "#1C2430", "color": "#E6EDF3",
                 },
                 "nav-link-selected": {
                     "background-color": "#1B3A5C",
@@ -73,19 +72,18 @@ def render_sidebar() -> str:
 
         st.markdown(
             f"""
-            <div style="background:#F8F9FA; border-radius:10px; padding:0.7rem 0.85rem;
-                        border:1px solid #E0E0E0; margin-bottom:0.8rem;">
+            <div class="ci-panel">
                 <p style="margin:0 0 0.3rem; font-weight:600; font-size:0.8rem;
-                          color:#1B3A5C; text-transform:uppercase; letter-spacing:0.5px;">
+                          color:#9FB0C3; text-transform:uppercase; letter-spacing:0.5px;">
                     System Status
                 </p>
                 <p style="margin:0; font-size:0.82rem;">
                     {status_dot} &nbsp;Backend: <strong>{status_text}</strong>
                 </p>
-                <p style="margin:0; font-size:0.75rem; color:#6C757D;">
+                <p style="margin:0; font-size:0.75rem; color:#9FB0C3;">
                     {BACKEND_BASE_URL}
                 </p>
-                <p style="margin:0; font-size:0.75rem; color:#6C757D;">
+                <p style="margin:0; font-size:0.75rem; color:#9FB0C3;">
                     Model: <code>{health.embedding_model or '—'}</code>
                 </p>
             </div>
@@ -125,8 +123,8 @@ def render_sidebar() -> str:
         # ── Footer ─────────────────────────────────────────────────
         st.markdown(
             f"""
-            <hr style="margin:1rem 0 0.5rem; border-color:#E0E0E0;">
-            <p style="text-align:center; font-size:0.7rem; color:#9E9E9E;">
+            <hr style="margin:1rem 0 0.5rem;">
+            <p style="text-align:center; font-size:0.7rem; color:#9FB0C3;">
                 {now_str()}<br>
                 Crime Intelligence Platform v1.0
             </p>

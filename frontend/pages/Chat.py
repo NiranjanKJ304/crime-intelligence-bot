@@ -29,15 +29,14 @@ def render() -> None:
     st.markdown(
         f"""
         <div style="text-align:center; padding:1.2rem 0 0.6rem;">
-            <h1 style="margin:0; font-size:2rem; font-weight:800; color:#1B3A5C;
-                       letter-spacing:-0.5px;">
+            <h1 class="ci-page-title" style="font-size:2rem; font-weight:800;">
                 {APP_ICON}  {APP_TITLE}
             </h1>
-            <p style="margin:0.2rem 0 0; font-size:0.95rem; color:#6C757D;">
+            <p class="ci-page-subtitle" style="font-size:0.95rem;">
                 {APP_SUBTITLE}
             </p>
         </div>
-        <hr style="margin:0 0 1rem; border-color:#E8ECF0;">
+        <hr style="margin:0 0 1rem;">
         """,
         unsafe_allow_html=True,
     )

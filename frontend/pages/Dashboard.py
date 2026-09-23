@@ -18,14 +18,14 @@ def render() -> None:
     st.markdown(
         f"""
         <div style="padding:0.8rem 0 0.4rem;">
-            <h1 style="margin:0; font-size:1.6rem; font-weight:700; color:#1B3A5C;">
+            <h1 class="ci-page-title" style="font-size:1.6rem;">
                 {APP_ICON}  System Dashboard
             </h1>
-            <p style="margin:0.2rem 0 0; font-size:0.88rem; color:#6C757D;">
+            <p class="ci-page-subtitle" style="font-size:0.88rem;">
                 Real-time backend health, model status, and retrieval analytics
             </p>
         </div>
-        <hr style="margin:0 0 1rem; border-color:#E8ECF0;">
+        <hr style="margin:0 0 1rem;">
         """,
         unsafe_allow_html=True,
     )
@@ -70,7 +70,7 @@ def render() -> None:
 
         st.markdown(
             f"""
-            <p style="font-size:0.8rem; color:#6C757D; margin-top:0.3rem;">
+            <p class="ci-muted" style="font-size:0.8rem;">
                 Embedding Model: <code>{config.get('embedding_model', '—')}</code>
             </p>
             """,
@@ -120,14 +120,14 @@ def render() -> None:
                 ]
             )
             fig.update_layout(
-                title=dict(text="Document Type Distribution", font=dict(size=14, color="#1B3A5C")),
+                title=dict(text="Document Type Distribution", font=dict(size=14, color="#E6EDF3")),
                 xaxis_title="Type",
                 yaxis_title="Count",
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 height=300,
                 margin=dict(l=40, r=20, t=50, b=40),
-                font=dict(size=11),
+                font=dict(size=11, color="#CBD5E1"),
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -144,14 +144,14 @@ def render() -> None:
                 ]
             )
             fig2.update_layout(
-                title=dict(text="Top Similarity Score Distribution", font=dict(size=14, color="#1B3A5C")),
+                title=dict(text="Top Similarity Score Distribution", font=dict(size=14, color="#E6EDF3")),
                 xaxis_title="Score Bucket",
                 yaxis_title="Queries",
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 height=280,
                 margin=dict(l=40, r=20, t=50, b=40),
-                font=dict(size=11),
+                font=dict(size=11, color="#CBD5E1"),
             )
             st.plotly_chart(fig2, use_container_width=True)
     else:
@@ -161,12 +161,10 @@ def render() -> None:
 def _status_card(label: str, value: str, icon: str) -> None:
     st.markdown(
         f"""
-        <div style="background:#F8F9FA; border:1px solid #E8ECF0; border-radius:10px;
-                    padding:0.65rem 0.8rem; text-align:center;">
+        <div class="ci-status-card">
             <p style="margin:0; font-size:1.3rem;">{icon}</p>
-            <p style="margin:0; font-size:0.72rem; color:#6C757D; text-transform:uppercase;
-                      letter-spacing:0.3px;">{label}</p>
-            <p style="margin:0; font-size:0.95rem; font-weight:700; color:#1B3A5C;">{value}</p>
+            <span class="ci-label">{label}</span>
+            <span class="ci-value">{value}</span>
         </div>
         """,
         unsafe_allow_html=True,
